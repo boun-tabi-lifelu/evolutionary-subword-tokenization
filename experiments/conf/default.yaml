@@ -1,0 +1,16 @@
+model_name: /stratch/bounllm/pretrained_checkpoints/ckpt-1.74M
+task_mode: '' # '[S2S]: ', '[NLU]: ', '[NLG]: '
+training_params:
+  num_train_epochs: 10
+  evaluation_strategy: epoch
+  save_strategy: epoch
+  logging_dir: ./logs
+  logging_steps: 100
+  save_total_limit: 3
+  remove_unused_columns: False
+  push_to_hub: False
+  report_to: wandb
+optimizer_params:
+  optimizer_type: adafactor # adafactor or adam
+  scheduler: False # 'linear' for adam
+dataset_loc: ""
