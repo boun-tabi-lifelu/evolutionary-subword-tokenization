@@ -1,27 +1,11 @@
-<h1 align="center"> Template Repo </h1>
-<h4 align="center"> Summary of project or library comes here. </h4>
+<h1 align="center"> Evolutionary Subword Tokenization </h1>
 
 </br>
 
-[![PyPI](https://img.shields.io/pypi/v/template-repo)](https://pypi.org/project/template-repo/)
-[![Conda](https://img.shields.io/conda/v/conda-forge/template-repo?label=conda&color=success)](https://anaconda.org/conda-forge/template-repo)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/template-repo)](https://pypi.org/project/template-repo/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/template-repo)](https://pypi.org/project/template-repo/)
-[![Code license](https://img.shields.io/badge/Code%20License-MIT-green.svg)](https://github.com/boun-tabi-lmt/blob/main/LICENSE)
-[![GitHub Repo stars](https://img.shields.io/github/stars/boun-tabi-lifelu/template-repo)](https://github.com/boun-tabi-lifelu/template-repo/stargazers)
-[![arXiv](https://img.shields.io/badge/arxiv-ID.svg)](https://arxiv.org/pdf/<arxiv-ID>.pdf)
-
 ## Overview 
 
-This is a template repository that provides an environment setup. It is designed in a Python library format and uses mkDocs for documentation, enabling quick work with Slurm and Docker in Ultramarine.
+Extend subword tokenization algorithms, namely BPE, WordPiece and Unigram, by incorporating evolutionary information at the amino acid level using BLOSUM and PAM matrices.
 
-## Installation
-
-You can install the library from PyPI.
-
-```bash
-pip install template-repo
-```
 
 ## Usage
 
