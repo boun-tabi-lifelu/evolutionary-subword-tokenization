@@ -1,6 +1,6 @@
 # Symbol node
 class Sym:
-    def __init__(self, symbol_str):
+    def __init__(self, symbol_str: str):
         self.literal = symbol_str
         self.prev = None
         self.next = None
@@ -12,12 +12,12 @@ class Sym:
         return self.literal
 
 class SymPair:
-    def __init__(self, sym1, sym2):
+    def __init__(self, sym1: str, sym2: str):
         self.left = sym1
         self.right = sym2
         self.count = 0
         self.positions = []
-    def add_pos(self, pos):
+    def add_pos(self, pos: tuple[Sym, Sym]):
         self.positions.append(pos)
         self.count += 1
     def __hash__(self):
@@ -38,10 +38,7 @@ class SymList:
         self.head = None
         self.tail = None
         self.length = 0
-    # Value is either str or Sym
-    def append(self, value):
-        if type(value) == type(""):
-            value = Sym(value)
+    def append(self, value: Sym):
         if self.head is None:
             self.head = value
             self.tail = value
@@ -72,12 +69,12 @@ class MaxHeapMap:
         self.heap = []
         self.map = {}
 
-    def _swap(self, i, j):
+    def _swap(self, i: int, j: int):
         self.map[self.heap[i]] = j
         self.map[self.heap[j]] = i
         self.heap[i], self.heap[j] = self.heap[j], self.heap[i]
 
-    def push(self, value):
+    def push(self, value: SymPair):
         # Add the new value at the end
         self.heap.append(value)
         self.map[value] = len(self.heap) - 1
@@ -103,7 +100,7 @@ class MaxHeapMap:
             raise IndexError("peek from an empty heap")
         return self.heap[0]
 
-    def remove_by_value(self, value):
+    def remove_by_value(self, value: SymPair):
         if value not in self.map:
             raise ValueError("value is not in the heap")
         heap_idx = self.map[value]
@@ -115,7 +112,7 @@ class MaxHeapMap:
             self._heapify_up(heap_idx)
         return internal_val
 
-    def _heapify_up(self, index):
+    def _heapify_up(self, index: int):
         parent = (index - 1) // 2
         # Keep swapping until the max heap property is restored
         # print(f"Comparing {str(self.heap[index])} , idx: {index} > {str(self.heap[parent])} , idx: {parent} : {self.heap[index] > self.heap[parent]}")
@@ -124,7 +121,7 @@ class MaxHeapMap:
             index = parent
             parent = (index - 1) // 2
 
-    def _heapify_down(self, index):
+    def _heapify_down(self, index: int):
         largest = index
         left = 2 * index + 1
         right = 2 * index + 2
