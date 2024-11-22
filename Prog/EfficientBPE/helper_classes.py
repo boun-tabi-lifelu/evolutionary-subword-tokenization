@@ -20,6 +20,8 @@ class SymPair:
     def add_pos(self, pos: tuple[Sym, Sym]):
         self.positions.append(pos)
         self.count += 1
+    def merged(self):
+        return self.left + self.right
     def __hash__(self):
         return hash((self.left, self.right))
     def __eq__(self, other):
