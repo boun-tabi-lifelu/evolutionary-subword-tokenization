@@ -70,6 +70,7 @@ class MaxHeapMap:
     def __init__(self):
         self.heap = []
         self.map = {}
+        self.merged_to_pair = {}
 
     def _swap(self, i: int, j: int):
         self.map[self.heap[i]] = j
@@ -80,6 +81,12 @@ class MaxHeapMap:
         # Add the new value at the end
         self.heap.append(value)
         self.map[value] = len(self.heap) - 1
+        # Bookkeeping
+        merged_str = value.merged()
+        if merged_str in self.merged_to_pair:
+            self.merged_to_pair[merged_str].append(value)
+        else:
+            self.merged_to_pair[merged_str] = [value]
         # Heapify up to maintain the max heap property
         self._heapify_up(len(self.heap) - 1)
 
@@ -95,6 +102,10 @@ class MaxHeapMap:
         del self.map[max_value]
         # Heapify down to maintain the max heap property
         self._heapify_down(0)
+
+        # Bookkeeping
+        merged_str = max_value.merged()
+        self.merged_to_pair[merged_str].remove(max_value)
         return max_value
 
     def peek(self):
@@ -112,6 +123,11 @@ class MaxHeapMap:
         if heap_idx < len(self.heap):
             self._heapify_down(heap_idx)
             self._heapify_up(heap_idx)
+
+        # Bookkeeping
+        merged_str = internal_val.merged()
+        self.merged_to_pair[merged_str].remove(internal_val)
+        
         return internal_val
 
     def _heapify_up(self, index: int):
