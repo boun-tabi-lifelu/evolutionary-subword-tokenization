@@ -148,7 +148,7 @@ def generate_mutations(seq, matrix, cutoff):
 
 
 def train_bpe(corpus = None, # A list of strings, is not necessary as long as following two parameters are given
-              initial_vocab = None, # if not given, a corpus is expected, is not edited during execution
+              alphabet = None, # if not given, a corpus is expected, is not edited during execution
               sequences = None, # if not given, a corpus is expected, will be edited during execution
               merge_heap = None, # if not given, will be generated from sequences, will be edited during execution
               tokenizer_type = "default", # either "mutated" or "default"
@@ -158,13 +158,13 @@ def train_bpe(corpus = None, # A list of strings, is not necessary as long as fo
               stop_parameter = None # need to be set depending on the stop_type, max vocabulary size for vocab_size etc.
               ):
     try:
-        if initial_vocab is None:
-            initial_vocab = []
+        if alphabet is None: 
+            alphabet = []
             for seq in corpus:
                 for letter in seq:
-                    if letter not in initial_vocab:
-                        initial_vocab.append(letter)
-            initial_vocab.sort()
+                    if letter not in alphabet:
+                        alphabet.append(letter)
+            alphabet.sort()
         if sequences is None:
             sequences = corpus_to_symlist_list(corpus)
         if merge_heap is None:
@@ -172,7 +172,12 @@ def train_bpe(corpus = None, # A list of strings, is not necessary as long as fo
     except:
         print("Did not receive proper arguments!")
     
-    output_vocab = initial_vocab.copy()
+    output_vocab = dict()
+    for symbol in alphabet: # Add the alphabet in the vocabulary dictionary (is this needed?)
+        output_vocab[symbol] = {
+            "frequency": 0,
+            "order": 0
+        }
 
     try:
         if stop_type == "vocab_size":
@@ -190,23 +195,46 @@ def train_bpe(corpus = None, # A list of strings, is not necessary as long as fo
             raise ValueError()
     except:
         print("Invalid value for parameter stop_type!")
-    
+
+    merge_counter = 0
     while stop_checker():
+        merge_counter += 1
+
         best_pair = merge_heap.pop()
         merge_pair(best_pair, merge_heap)
         merged_string = best_pair.merged()
-        output_vocab.append(merged_string)
+
+
+        # add the vocabulary entry
+        if merged_string in output_vocab:
+            print(f"Warning: Duplicate token {merged_string}")
+
+        output_vocab[merged_string] = {
+            "frequency": best_pair.count,
+            "order": merge_counter,
+            "pair": (best_pair.left, best_pair.right)
+        }
         
         if tokenizer_type == "mutated":
-            # Consider only the mutations with a similarity score larger than 0.8
+            # Consider only the mutations with a similarity score larger than mutation cutoff
             # [1:] ignores the original string
             mutations = generate_mutations(merged_string, subs_matrix, mutation_cutoff)[1:]
             for mutated_str, score in mutations:
                 pairs_to_merge = merge_heap.merged_to_pair.get(mutated_str, [])
-                if len(pairs_to_merge) > 0:
-                    output_vocab.append(mutated_str)
                 for pair in pairs_to_merge:
+                    merge_counter += 1
                     merge_heap.remove_by_value(pair)
                     merge_pair(pair, merge_heap)
+
+                    # add the vocabulary entry
+                    if mutated_str in output_vocab:
+                        print(f"Warning: Duplicate token {mutated_str}")
+                    output_vocab[mutated_str] = {
+                        "frequency": pair.count,
+                        "order": merge_counter,
+                        "pair": (pair.left, pair.right),
+                        "parent": merged_string,
+                        "similarity": score
+                    }
 
     return output_vocab
