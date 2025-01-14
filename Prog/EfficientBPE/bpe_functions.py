@@ -154,6 +154,9 @@ def train_bpe(corpus = None, # A list of strings, is not necessary as long as fo
               tokenizer_type = "default", # either "mutated" or "default"
               subs_matrix = blosum62, # Only used in tokenizer_type "mutated"
               mutation_cutoff = 0.8, # Only used in tokenizer_type "mutated"
+              min_mutation_freq = 0.005, # Minimum frequency coefficient of the mutation, with respect to the parent
+              max_mutation_len = 12, # Maximum length of a sequence where mutation will be applied
+              min_mutation_len = 3, # Maximum length of a sequence where mutation will be applied
               stop_type = "vocab_size", # either "vocab_size", "freq_cutoff" or "freq_proportion"
               stop_parameter = None # need to be set depending on the stop_type, max vocabulary size for vocab_size etc.
               ):
@@ -215,26 +218,31 @@ def train_bpe(corpus = None, # A list of strings, is not necessary as long as fo
             "pair": (best_pair.left, best_pair.right)
         }
         
-        if tokenizer_type == "mutated":
+        if (tokenizer_type == "mutated" and 
+            len(merged_string) <= max_mutation_len and
+            len(merged_string) >= min_mutation_len):
             # Consider only the mutations with a similarity score larger than mutation cutoff
             # [1:] ignores the original string
             mutations = generate_mutations(merged_string, subs_matrix, mutation_cutoff)[1:]
             for mutated_str, score in mutations:
                 pairs_to_merge = merge_heap.merged_to_pair.get(mutated_str, [])
+                if len(pairs_to_merge) > 1:
+                    print(f"Warning, multiple pairs lead to same mutation: {pairs_to_merge}")
                 for pair in pairs_to_merge:
-                    merge_counter += 1
-                    merge_heap.remove_by_value(pair)
-                    merge_pair(pair, merge_heap)
-
-                    # add the vocabulary entry
-                    if mutated_str in output_vocab:
-                        print(f"Warning: Duplicate token {mutated_str}")
-                    output_vocab[mutated_str] = {
-                        "frequency": pair.count,
-                        "order": merge_counter,
-                        "pair": (pair.left, pair.right),
-                        "parent": merged_string,
-                        "similarity": score
-                    }
+                    if pair.count > best_pair.count * min_mutation_freq:
+                        merge_counter += 1
+                        merge_heap.remove_by_value(pair)
+                        merge_pair(pair, merge_heap)
+                        # add the vocabulary entry
+                        if mutated_str in output_vocab:
+                            print(f"Warning: Duplicate token {mutated_str}")
+                        output_vocab[mutated_str] = {
+                            "frequency": pair.count,
+                            "order": merge_counter,
+                            "pair": (pair.left, pair.right),
+                            "parent": merged_string,
+                            "similarity": score
+                        }
+                    
 
     return output_vocab
