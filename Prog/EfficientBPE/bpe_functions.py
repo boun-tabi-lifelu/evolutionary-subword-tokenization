@@ -243,6 +243,7 @@ def train_bpe(corpus = None, # A list of strings, is not necessary as long as fo
                             "parent": merged_string,
                             "similarity": score
                         }
+                        output_vocab[merged_string]["is_parent"] = True
                     
 
     return output_vocab

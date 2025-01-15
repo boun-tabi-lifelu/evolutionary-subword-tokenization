@@ -2,6 +2,8 @@ import multiprocessing, sqlite3, json
 import pandas as pd
 import bpe_functions, vocabulary_functions
 
+from Bio.Align import substitution_matrices
+
 def opts_to_file_name(prefix, opts):
     if opts["tokenizer_type"] == "default":
         return f"{prefix}_bpe_{opts["stop_parameter"]}.json"
@@ -26,7 +28,7 @@ def training(args):
 if __name__ == "__main__":
     db_file = "/cta/share/users/uniprot/human/human.db"
     conn = sqlite3.connect(db_file)
-    df_uniprot_human_seqs = pd.read_sql(f"SELECT Sequence FROM proteins WHERE Entry IN (SELECT uniprot_accession FROM uniref50_distilled)", conn)
+    df_uniprot_human_seqs = pd.read_sql(f"SELECT Sequence FROM proteins WHERE Entry IN (SELECT uniprot_accession FROM uniref90_distilled)", conn)
     conn.close()
 
     filtered_sequences = df_uniprot_human_seqs[
@@ -43,8 +45,8 @@ if __name__ == "__main__":
                 'Z', 'J']
     corpus = filtered_sequences
     vocab_size = 51200
-    save_folder = "/cta/share/users/mutbpe/tokenizers/"
-    argument_set_cutoff = [0.7, 0.8, 0.9]
+    save_folder = "/cta/share/users/mutbpe/tokenizers/blosum45/"
+    argument_set_cutoff = [0.8, 0.9]
     argument_set_mutfreq = [0, 0.005, 0.05]
 
     arguments = [
@@ -62,6 +64,7 @@ if __name__ == "__main__":
                 {
                     "corpus": corpus,
                     "alphabet": alphabet,
+                    'subs_matrix': substitution_matrices.load("BLOSUM45"),
                     "tokenizer_type": "mutated",
                     "mutation_cutoff": cutoff,
                     "min_mutation_len": 3,
@@ -72,9 +75,9 @@ if __name__ == "__main__":
                         
                 }
             )
-    save_folders = [save_folder + opts_to_file_name("uniref50", opts) for opts in arguments]
-    hf_folders = [save_folder + "hf_" + opts_to_file_name("uniref50", opts) for opts in arguments]
+    save_folders = [save_folder + opts_to_file_name("uniref90", opts) for opts in arguments]
+    hf_folders = [save_folder + "hf_" + opts_to_file_name("uniref90", opts) for opts in arguments]
     # print(save_folders)
-    with multiprocessing.Pool(processes=10) as pool:
+    with multiprocessing.Pool(processes=7) as pool:
         pool.map(training, zip(arguments, save_folders, hf_folders))
     

@@ -2,7 +2,7 @@ import os
 import re
 import vocabulary_functions
 import json
-base_path = "/cta/share/users/mutbpe/tokenizers/"
+base_path = "/cta/share/users/mutbpe/tokenizers/blosum45/"
 
 filenames = list(filter(lambda x: not x.startswith("hf"), os.listdir(base_path)))
 filenames = list(filter(lambda x: "51200" in x, filenames))
