@@ -125,6 +125,29 @@ def calc_agreement(tlist1, tlist2):
     intersection = np.dot(tkn_bounds1, tkn_bounds2)
     return 2 * intersection / (tkn_bounds1.sum() + tkn_bounds2.sum())
 
+# Assumes the indices are 0-indexed. 
+def calc_dice_idx_only(indices1, indices2):
+    seq_length = max(max(indices1), max(indices2))
+    bounds1 = np.zeros(seq_length + 1, dtype="int")
+    bounds2 = np.zeros(seq_length + 1, dtype="int")
+    bounds1[indices1] = 1
+    bounds2[indices2] = 1
+    intersection = np.dot(bounds1, bounds2)
+    return 2 * intersection / (len(indices1) + len(indices2)) 
 
 
+# Returns the subset of all the mutated tokens
+def get_mutated(vocab):
+    return {k: v for k, v in vocab.items() if "parent" in v}
 
+# Returns the subset of all the parent tokens
+def get_parents(vocab):
+    return {k: v for k, v in vocab.items() if "is_parent" in v}
+
+# Returns the set difference vocab1 \ vocab2
+def set_difference(vocab1, vocab2):
+    return {k: v for k,v in vocab1.items() if k not in vocab2}
+
+# Returns the set intersection vocab1 n vocab2
+def set_intersection(vocab1, vocab2):
+    return {k: v for k,v in vocab1.items() if k in vocab2}
