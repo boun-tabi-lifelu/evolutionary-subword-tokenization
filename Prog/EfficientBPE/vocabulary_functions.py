@@ -20,6 +20,7 @@ value = {
 '''
 import numpy as np
 import json
+from tokenizers import Tokenizer
 
 # Converts the vocab dictionary data structure into
 # hugging face tokenizer data structure and returns it
@@ -151,3 +152,90 @@ def set_difference(vocab1, vocab2):
 # Returns the set intersection vocab1 n vocab2
 def set_intersection(vocab1, vocab2):
     return {k: v for k,v in vocab1.items() if k in vocab2}
+
+
+def generate_tokenizer_name(tokenizer_opts, vocab_size):
+    if tokenizer_opts['is_mut']:
+        tokenizer_name = f"mutBPE{' pre' if tokenizer_opts['is_pretokenizer'] else ''} {tokenizer_opts['subs_matrix']} {tokenizer_opts['mutation_cutoff']} {tokenizer_opts['min_mutation_freq']} {vocab_size}"
+    else:
+        tokenizer_name = f"stdBPE{' pre' if tokenizer_opts['is_pretokenizer'] else ''} {vocab_size}"
+    return tokenizer_name
+
+def generate_tokenizer_filename(tokenizer_opts, vocab_size):
+    if tokenizer_opts['is_mut']:
+        file_name = f"{tokenizer_opts['dataset']}{'pre' if tokenizer_opts['is_pretokenizer'] else ''}_mutbpe_{tokenizer_opts['mutation_cutoff']}_{tokenizer_opts['min_mutation_len']}"
+        file_name += f"_{tokenizer_opts['max_mutation_len']}_{tokenizer_opts['min_mutation_freq']}_{vocab_size}"
+    else:
+        file_name = f"{tokenizer_opts['dataset']}{'pre' if tokenizer_opts['is_pretokenizer'] else ''}_bpe_{vocab_size}"
+    return file_name
+
+
+def load_tokenizer(tokenizer_opts, folder_path = "/cta/share/users/mutbpe/tokenizers", hf_or_vocab = 'hf'):
+    tokenizer_list = {}
+    if tokenizer_opts['is_mut']:
+        for vocab_size in tokenizer_opts['vocab_size']:
+            tokenizer_name = generate_tokenizer_name(tokenizer_opts, vocab_size)
+            file_name = generate_tokenizer_filename(tokenizer_opts, vocab_size)
+            if hf_or_vocab == 'hf':
+                file_path = f"{folder_path}/{tokenizer_opts['subs_matrix']}/hf_{file_name}"
+                tokenizer_list[tokenizer_name] = Tokenizer.from_file(f"{file_path}.json")
+            else:
+                file_path = f"{folder_path}/{tokenizer_opts['subs_matrix']}/{file_name}"
+                with open(f"{file_path}.json") as json_file:
+                    tokenizer_list[tokenizer_name] = json.load(json_file)
+                
+    else:
+        for vocab_size in tokenizer_opts['vocab_size']:
+            tokenizer_name = generate_tokenizer_name(tokenizer_opts, vocab_size)
+            file_name = generate_tokenizer_filename(tokenizer_opts, vocab_size)
+            if hf_or_vocab == 'hf':
+                file_path = f"{folder_path}/{'blosum62'}/hf_{file_name}"
+                tokenizer_list[tokenizer_name] = Tokenizer.from_file(f"{file_path}.json")
+            else:
+                file_path = f"{folder_path}/{'blosum62'}/{file_name}"
+                with open(f"{file_path}.json") as json_file:
+                    tokenizer_list[tokenizer_name] = json.load(json_file)
+
+    return tokenizer_list
+
+def load_tokenizers(tokenizer_opts_list, hf_or_vocab = 'hf'):
+    """
+    # 'dataset': {'uniref50', 'uniref90'}
+    # 'is_pretokenizer': {True, False}
+    # 'subs_matrix': {'blosum45', 'blosum62', 'pam70', 'pam250'}
+    # 'mutation_cutoff': {0.7, 0.8, 0.9}
+    # 'min_mutation_freq': {0, 0.05,. 0.005}
+    # 'min_mutation_len': {3}
+    # 'max_mutation_len': {12}
+    # 'vocab_size': list=[800, 1600, 3200, 6400, 12800, 25600, 51200]
+
+    vocab_sizes = [800, 3200, 12800]
+    uniref_id = "50"
+
+    tokenizer_opts_list = [
+        {
+            'is_mut': False,
+            'dataset': f'uniref{uniref_id}',
+            'is_pretokenizer': False,
+            'vocab_size': vocab_sizes
+        },
+        {
+            'is_mut': True,
+            'dataset': f'uniref{uniref_id}',
+            'is_pretokenizer': True,
+            'subs_matrix': 'blosum62',
+            'mutation_cutoff': 0.7,
+            'min_mutation_freq': 0.05,
+            'min_mutation_len': 3,
+            'max_mutation_len': 12,
+            'vocab_size': vocab_sizes
+        }
+    ]
+
+    tokenizer_list = load_tokenizers(tokenizer_opts_list, 'hf')
+    inner_vocab_list = load_tokenizers(tokenizer_opts_list, 'vocab')
+    """
+    tokenizer_list = {}
+    for tokenizer_opts in tokenizer_opts_list:
+        tokenizer_list.update(load_tokenizer(tokenizer_opts, hf_or_vocab=hf_or_vocab))
+    return tokenizer_list
