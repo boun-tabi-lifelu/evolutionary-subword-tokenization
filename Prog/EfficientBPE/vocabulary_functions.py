@@ -106,6 +106,7 @@ def calc_agreement(tlist1, tlist2):
         tkn_bound_indices1.append(current_pos)
         current_pos += len(t)
     tkn_bound_indices1.append(current_pos)
+    list1_len = current_pos
     # Calculate token boundary indices for list 2
     current_pos = 0
     tkn_bound_indices2 = []
@@ -113,15 +114,16 @@ def calc_agreement(tlist1, tlist2):
         tkn_bound_indices2.append(current_pos)
         current_pos += len(t)
     tkn_bound_indices2.append(current_pos)
+    list2_len = current_pos
 
     if tkn_bound_indices1[-1] != tkn_bound_indices2[-1]:
         "Two token lists do not describe a sequence of same length!"
 
-
     # Convert the token boundary indices to feature vectors
-    tkn_bounds1 = np.zeros((current_pos + 1), dtype='int')
+    max_len = list1_len if list1_len > list2_len else list2_len
+    tkn_bounds1 = np.zeros((max_len + 1), dtype='int')
     tkn_bounds1[tkn_bound_indices1] = True
-    tkn_bounds2 = np.zeros((current_pos + 1), dtype='int')
+    tkn_bounds2 = np.zeros((max_len + 1), dtype='int')
     tkn_bounds2[tkn_bound_indices2] = True
     intersection = np.dot(tkn_bounds1, tkn_bounds2)
     return 2 * intersection / (tkn_bounds1.sum() + tkn_bounds2.sum())
