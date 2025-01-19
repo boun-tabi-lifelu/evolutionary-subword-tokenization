@@ -128,15 +128,11 @@ def calc_agreement(tlist1, tlist2):
     intersection = np.dot(tkn_bounds1, tkn_bounds2)
     return 2 * intersection / (tkn_bounds1.sum() + tkn_bounds2.sum())
 
-# Assumes the indices are 0-indexed. 
-def calc_dice_idx_only(indices1, indices2):
-    seq_length = max(max(indices1), max(indices2))
-    bounds1 = np.zeros(seq_length + 1, dtype="int")
-    bounds2 = np.zeros(seq_length + 1, dtype="int")
-    bounds1[indices1] = 1
-    bounds2[indices2] = 1
-    intersection = np.dot(bounds1, bounds2)
-    return 2 * intersection / (len(indices1) + len(indices2)) 
+
+def calc_dice_idx_only(index_lists):
+    all_sets = [set(l) for l in index_lists]
+    total_intersect = set.intersection(*all_sets)
+    return len(index_lists)*len(total_intersect)/sum([len(l) for l in all_sets])
 
 
 # Returns the subset of all the mutated tokens
