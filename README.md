@@ -1,18 +1,27 @@
 <h1 align="center"> evoBPE: Evolutionary Protein Sequence Tokenization </h1>
 
+<center><img src="figures/evoBPE.svg" alt="evoBPE" width="750px"></center>
+
 </br>
 
 This repo contains all data and source code used during [this work]().
 We provide codes and notebooks to reproduce our work.
 
 - **[Prog](Prog)** contains codes and notebooks.
+  - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of evoBPE.
+  - **[Prog/bpe_functions.py](Prog/bpe_functions.py):** Training functions of evoBPE.
+  - **[Prog/multiprocess_training.py](Prog/multiprocess_training.py):** The main script to train tokenizers. Utilizes multiprocessing.
+  - **[Prog/vocabulary_functions.py](Prog/vocabulary_functions.py):** Useful functions related to vocabulary manipulation.
   - **[Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb)** covers where we obtained all the data and how we processed them to be utilized for our study.
+  - **[Prog/general_tokenizer_statistics.ipynb](Prog/general_tokenizer_statistics.ipynb):** Preliminary Analysis - General Tokenizer Statistics.
+  - **[Prog/effect_of_substitution_matrices.ipynb](Prog/effect_of_substitution_matrices.ipynb):** Preliminary Analysis - Effect of Substitution Matrices.
   - **[Prog/pretokenized_dataset_generation.ipynb](Prog/pretokenized_dataset_generation.ipynb)** shows pre-tokenization process.
   - **[Prog/adherence_to_linguistic_laws.ipynb](Prog/adherence_to_linguistic_laws.ipynb):** Preliminary Analysis - Adherence to Linguistic Laws.
   - **[Prog/domain_conservation_analysis.ipynb](Prog/domain_conservation_analysis.ipynb):** Experiments - Domain Conservation Analysis.
   - **[Prog/esm_embedding_similarity_analysis_for_mutations.ipynb](Prog/esm_embedding_similarity_analysis_for_mutations.ipynb):** Experiments - ESM-2 Embedding Similarity Analysis for Mutations.
-- **[RSRC](RSRC)** contains standard and pre-tokenized versions of the UniRef50 human taxanomy proteins. Codes that create fasta files can be found in [Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb) notebook's 'Generate Fasta Files' section.
-  - **[RSRC/uniref_50.fasta](RSRC/uniref_50.fasta):** Standard versions of the proteins.
+- **[RSRC/vocabs](RSRC/vocabs)** contains internal and huggingface versions of BPE and evoBPE vocabulary files for the vocabulary size of 6400.
+- **[RSRC/dataset](RSRC/dataset)** contains standard and pre-tokenized versions of the UniRef50 human taxanomy proteins. Codes that create fasta files can be found in [Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb) notebook's 'Generate Fasta Files' section.
+  - **[RSRC/dataset/uniref_50.fasta](RSRC/dataset/uniref_50.fasta):** Standard versions of the proteins.
     ```
     format:
     >uniprot_id
@@ -22,7 +31,7 @@ We provide codes and notebooks to reproduce our work.
     >A0A087WZT3
     MELSAEYLREKLQRDLEAEHVLPSPGGVGQVRGETAASETQLGS
     ```
-  - **[RSRC/uniref_50_pretokenized.fasta](RSRC/uniref_50_pretokenized.fasta):** Pre-tokenized versions of the proteins.
+  - **[RSRC/dataset/uniref_50_pretokenized.fasta](RSRC/dataset/uniref_50_pretokenized.fasta):** Pre-tokenized versions of the proteins.
     ```
     format:
     >uniprot_id occurrence=occurence order | source={out_of_domain or InterPro ID or TED ID}
@@ -51,6 +60,6 @@ If you use this repository, please cite the following related [paper]():
 
 ## License
 
-The data in this repository is released under terms of the [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).
+The data in this repository is released under terms of the [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). See [LICENSE](LICENSE.txt) for details.
 
-This code base is licensed under the MIT license. See [LICENSE](MIT-LICENSE.txt) for details.
+This code base is licensed under the MIT license. See [MIT-LICENSE](MIT-LICENSE.txt) for details.
