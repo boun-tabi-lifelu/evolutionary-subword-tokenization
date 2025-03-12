@@ -6,9 +6,13 @@ This repo contains all data and source code used during [this work]().
 We provide codes and notebooks to reproduce our work.
 
 - **[Prog](Prog)** contains codes and notebooks.
-  - sd
+  - **[Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb)** covers where we obtained all the data and how we processed them to be utilized for our study.
+  - **[Prog/pretokenized_dataset_generation.ipynb](Prog/pretokenized_dataset_generation.ipynb)** shows pre-tokenization process.
+  - **[Prog/adherence_to_linguistic_laws.ipynb](Prog/adherence_to_linguistic_laws.ipynb):** Preliminary Analysis - Adherence to Linguistic Laws.
+  - **[Prog/domain_conservation_analysis.ipynb](Prog/domain_conservation_analysis.ipynb):** Experiments - Domain Conservation Analysis.
+  - **[Prog/esm_embedding_similarity_analysis_for_mutations.ipynb](Prog/esm_embedding_similarity_analysis_for_mutations.ipynb):** Experiments - ESM-2 Embedding Similarity Analysis for Mutations.
 - **[RSRC](RSRC)** contains standard and pre-tokenized versions of the UniRef50 human taxanomy proteins. Codes that create fasta files can be found in [Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb) notebook's 'Generate Fasta Files' section.
-  - **[RSRC](RSRC/uniref_50.fasta):** Standard versions of the proteins.
+  - **[RSRC/uniref_50.fasta](RSRC/uniref_50.fasta):** Standard versions of the proteins.
     ```
     format:
     >uniprot_id
@@ -18,7 +22,7 @@ We provide codes and notebooks to reproduce our work.
     >A0A087WZT3
     MELSAEYLREKLQRDLEAEHVLPSPGGVGQVRGETAASETQLGS
     ```
-  - **[RSRC](RSRC/uniref_50_pretokenized.fasta):** Pre-tokenized versions of the proteins.
+  - **[RSRC/uniref_50_pretokenized.fasta](RSRC/uniref_50_pretokenized.fasta):** Pre-tokenized versions of the proteins.
     ```
     format:
     >uniprot_id occurrence=occurence order | source={out_of_domain or InterPro ID or TED ID}
