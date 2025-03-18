@@ -4,7 +4,7 @@
 
 </br>
 
-This repo contains all data and source code used during [this work]().
+This repo contains all data and source code used during [this work](https://www.arxiv.org/abs/2503.08838).
 We provide codes and notebooks to reproduce our work.
 
 - **[Prog](Prog)** contains codes and notebooks.
@@ -48,12 +48,11 @@ Recent advancements in computational biology have drawn compelling parallels bet
 
 If you use this repository, please cite the following related [paper]():
 ```bibtex
-@article{,
-  title={},
-  author={},
-  journal={},
-  year={},
-  publisher={}
+@article{suyunu2025evobpe,
+  title={evoBPE: Evolutionary Protein Sequence Tokenization},
+  author={Suyunu, Burak and Dolu, {\"O}zdeniz and {\"O}zg{\"u}r, Arzucan},
+  journal={arXiv preprint arXiv:2503.08838},
+  year={2025}
 }
 ```
 
