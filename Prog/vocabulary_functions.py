@@ -24,6 +24,7 @@ from tokenizers import Tokenizer
 from statistics import mean, stdev
 import os
 import re
+from scipy.spatial.distance import pdist
 
 # Converts the vocab dictionary data structure into
 # hugging face tokenizer data structure and returns it
@@ -189,6 +190,92 @@ def set_difference(vocab1, vocab2):
 # Returns the set intersection vocab1 n vocab2
 def set_intersection(vocab1, vocab2):
     return {k: v for k,v in vocab1.items() if k in vocab2}
+
+
+
+
+
+'''
+Given a Tokenizers encoding tkz_encoding
+Assign each symbol in the sequence its token id
+Return the numpy list containing assignments
+(Like cluster assignments)
+'''
+def _enc_to_cluster(tkz_encoding):
+    seq_len = tkz_encoding.offsets[-1][-1]
+    cluster_assign = np.zeros((seq_len, 1))
+    for i, (b, e) in enumerate(tkz_encoding.offsets):
+        cluster_assign[b:e] = i
+    return cluster_assign
+
+# Cluster based rand-index
+def calc_rand_index(enc1, enc2):
+    clusters1 = _enc_to_cluster(enc1)
+    clusters2 = _enc_to_cluster(enc2)
+    assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
+    label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
+    rand_index = np.mean(assign_eq == label_eq)
+    return rand_index
+
+# Cluster based dice index
+def calc_dice_index(enc1, enc2):
+    clusters1 = _enc_to_cluster(enc1)
+    clusters2 = _enc_to_cluster(enc2)
+    assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
+    label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
+    # Boolean masks
+    same_assign = assign_eq == 0
+    same_label = label_eq == 0
+    TP = np.sum(same_assign & same_label)
+    FP = np.sum(same_assign & ~same_label)
+    FN = np.sum(~same_assign & same_label)
+    # Jaccard index (ignores TN)
+    dice_index = 2*TP / (2*TP + FP + FN + 1e-10)
+    return dice_index
+
+# Cluster based jaccard index
+def calc_jaccard_index(enc1, enc2):
+    clusters1 = _enc_to_cluster(enc1)
+    clusters2 = _enc_to_cluster(enc2)
+    assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
+    label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
+    # Boolean masks
+    same_assign = assign_eq == 0
+    same_label = label_eq == 0
+    TP = np.sum(same_assign & same_label)
+    FP = np.sum(same_assign & ~same_label)
+    FN = np.sum(~same_assign & same_label)
+    # Jaccard index (ignores TN)
+    jaccard_index = TP / (TP + FP + FN + 1e-10)
+    return jaccard_index
+
+# Calc all indices at the same time to avoid redundancy
+# Returns rand, dice, jaccard
+def calc_all_indices(enc1, enc2):
+    clusters1 = _enc_to_cluster(enc1)
+    clusters2 = _enc_to_cluster(enc2)
+    assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
+    label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
+    same_assign = assign_eq == 0
+    same_label = label_eq == 0
+    TP = np.sum(same_assign & same_label)
+    FP = np.sum(same_assign & ~same_label)
+    FN = np.sum(~same_assign & same_label)
+    TN = np.sum(~same_assign & ~same_label)
+
+
+    jaccard_index = TP / (TP + FP + FN + 1e-10)
+    dice_index = 2*TP / (2*TP + FP + FN + 1e-10)
+    rand_index = (TP + TN) / (TP + FP + FN + TN)
+    
+    return rand_index, dice_index, jaccard_index
+
+
+
+
+
+
+
 
 
 def generate_tokenizer_name(tokenizer_opts, vocab_size):
