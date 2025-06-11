@@ -196,31 +196,31 @@ def set_intersection(vocab1, vocab2):
 
 
 '''
-Given a Tokenizers encoding tkz_encoding
+Given a Tokenizers encoding offsets offs
 Assign each symbol in the sequence its token id
 Return the numpy list containing assignments
 (Like cluster assignments)
 '''
-def _enc_to_cluster(tkz_encoding):
-    seq_len = tkz_encoding.offsets[-1][-1]
+def _offsets_to_cluster(offs):
+    seq_len = offs[-1][-1]
     cluster_assign = np.zeros((seq_len, 1))
-    for i, (b, e) in enumerate(tkz_encoding.offsets):
+    for i, (b, e) in enumerate(offs):
         cluster_assign[b:e] = i
     return cluster_assign
 
 # Cluster based rand-index
-def calc_rand_index(enc1, enc2):
-    clusters1 = _enc_to_cluster(enc1)
-    clusters2 = _enc_to_cluster(enc2)
+def calc_rand_index(offs1, offs2):
+    clusters1 = _offsets_to_cluster(offs1)
+    clusters2 = _offsets_to_cluster(offs2)
     assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
     label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
     rand_index = np.mean(assign_eq == label_eq)
     return rand_index
 
 # Cluster based dice index
-def calc_dice_index(enc1, enc2):
-    clusters1 = _enc_to_cluster(enc1)
-    clusters2 = _enc_to_cluster(enc2)
+def calc_dice_index(offs1, offs2):
+    clusters1 = _offsets_to_cluster(offs1)
+    clusters2 = _offsets_to_cluster(offs2)
     assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
     label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
     # Boolean masks
@@ -234,9 +234,9 @@ def calc_dice_index(enc1, enc2):
     return dice_index
 
 # Cluster based jaccard index
-def calc_jaccard_index(enc1, enc2):
-    clusters1 = _enc_to_cluster(enc1)
-    clusters2 = _enc_to_cluster(enc2)
+def calc_jaccard_index(offs1, offs2):
+    clusters1 = _offsets_to_cluster(offs1)
+    clusters2 = _offsets_to_cluster(offs2)
     assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
     label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
     # Boolean masks
@@ -251,9 +251,9 @@ def calc_jaccard_index(enc1, enc2):
 
 # Calc all indices at the same time to avoid redundancy
 # Returns rand, dice, jaccard
-def calc_all_indices(enc1, enc2):
-    clusters1 = _enc_to_cluster(enc1)
-    clusters2 = _enc_to_cluster(enc2)
+def calc_all_indices(offs1, offs2):
+    clusters1 = _offsets_to_cluster(offs1)
+    clusters2 = _offsets_to_cluster(offs2)
     assign_eq = pdist(clusters1, metric='hamming')  # 0 if same, 1 if different
     label_eq = pdist(clusters2, metric='hamming') # 0 if same, 1 if different
     same_assign = assign_eq == 0
@@ -269,7 +269,6 @@ def calc_all_indices(enc1, enc2):
     rand_index = (TP + TN) / (TP + FP + FN + TN)
     
     return rand_index, dice_index, jaccard_index
-
 
 
 
