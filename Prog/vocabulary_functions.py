@@ -279,9 +279,9 @@ def calc_all_indices(offs1, offs2):
 
 def generate_tokenizer_name(tokenizer_opts, vocab_size):
     if tokenizer_opts['is_mut']:
-        tokenizer_name = f"mutBPE{' pre' if tokenizer_opts['is_pretokenizer'] else ''} {tokenizer_opts['subs_matrix']} {tokenizer_opts['mutation_cutoff']} {tokenizer_opts['min_mutation_freq']} {vocab_size}"
+        tokenizer_name = f"PUMA{' pre' if tokenizer_opts['is_pretokenizer'] else ''} {tokenizer_opts['subs_matrix']} {tokenizer_opts['mutation_cutoff']} {tokenizer_opts['min_mutation_freq']} {vocab_size}"
     else:
-        tokenizer_name = f"stdBPE{' pre' if tokenizer_opts['is_pretokenizer'] else ''} {vocab_size}"
+        tokenizer_name = f"BPE{' pre' if tokenizer_opts['is_pretokenizer'] else ''} {vocab_size}"
     return tokenizer_name
 
 def generate_tokenizer_filename(tokenizer_opts, vocab_size):
