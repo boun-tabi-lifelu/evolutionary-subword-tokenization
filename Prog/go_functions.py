@@ -6,6 +6,8 @@ import itertools
 import json
 import random
 from collections import Counter
+from collections import defaultdict
+from typing import List, Dict, Tuple, Set, Any, Optional, Union
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
@@ -19,10 +21,18 @@ from bertopic.vectorizers import ClassTfidfTransformer
 from bertopic.dimensionality import BaseDimensionalityReduction
 from bertopic.representation import KeyBERTInspired
 
+import networkx as nx
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster, cophenet
+from scipy.spatial.distance import pdist, squareform
+from scipy.stats import spearmanr, pearsonr
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics.pairwise import cosine_similarity
+
+from goatools.gosubdag.gosubdag import GoSubDag
+
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-from typing import List, Dict, Tuple, Set, Any, Optional, Union
 
 sns.set()
 sns.color_palette("Spectral", as_cmap=True)
@@ -816,3 +826,1026 @@ def optimize_graph_aware_parameters(df_train: pd.DataFrame, df_test: pd.DataFram
     print(best_param_counter)
 
     return df_results, best_params, best_param_counter
+
+
+class GOHierarchyComparator:
+    def __init__(self, go_dag, goslim_terms, topic_model, documents):
+        """
+        Initialize the comparator with GO DAG and BERTopic data
+        
+        Args:
+            go_dag: GODag object containing GO term relationships
+            goslim_terms: Set of GO Slim terms
+            topic_model: BERTopic model with custom labels as GO terms
+            documents: Documents used in topic modeling
+        """
+        self.go_dag = go_dag
+        self.goslim_terms = goslim_terms
+        self.go_subdag_slim = GoSubDag(goslim_terms, go_dag)
+
+        # Build BERTopic distance matrix
+        distance_function = lambda x: ((1 - cosine_similarity(x))+((1 - cosine_similarity(x)).T))/2
+        topic_distances = distance_function(topic_model.c_tf_idf_)
+        self.bertopic_distance_matrix = topic_distances*(np.eye(topic_distances.shape[0])*-1+1)
+        self.bertopic_distance_matrix = self._min_max_normalize(self.bertopic_distance_matrix)
+
+        # Get BERTopic dendrogram
+        self.bertopic_dendrogram = topic_model.hierarchical_topics(documents, distance_function=distance_function)
+
+        # Build topic-GO mappings
+        goslim_id2name = {go_id : go_dag[go_id].name for go_id in goslim_terms}
+        goslim_name2id = {go_dag[go_id].name : go_id for go_id in goslim_terms}
+        self.topic_to_go = {i:goslim_name2id[topic] for i, topic in enumerate(topic_model.custom_labels_)}
+        self.go_to_topic = {goslim_name2id[topic]:i for i, topic in enumerate(topic_model.custom_labels_)}
+        
+        # Build GO network
+        self.go_network = self._build_go_network()
+                
+        # Compute GO distance matrix (hop-based)
+        self.go_distance_matrix = self._compute_go_distance_matrix()
+        # self.go_distance_matrix_normalized = self._normalize_tensor(self.go_distance_matrix)
+        self.go_distance_matrix_normalized = self._min_max_normalize(self.go_distance_matrix)
+
+        # NEW: Convert BERTopic dendrogram to hop-based distance matrix
+        self.bertopic_hop_distance_matrix = self._convert_dendrogram_to_hop_distances()
+
+        # Build linkage matrices using distance matrices directly
+        self.bertopic_linkage_matrix = self._build_linkage_matrix(
+            self.bertopic_distance_matrix, self.bertopic_hop_distance_matrix, use_hop_distances=True, method='average'
+        )
+        self.go_linkage_matrix = self._build_linkage_matrix(
+            self.go_distance_matrix_normalized, self.go_distance_matrix, use_hop_distances=True, method='average'
+        )
+
+    def _build_go_network(self):
+        """Build NetworkX graph from GO DAG"""
+        G = nx.DiGraph()
+        for go_id, go_term in self.go_subdag_slim.go2obj.items():
+            G.add_node(go_id, name=go_term.name, namespace=go_term.namespace)
+            for parent in go_term.parents:
+                if parent.id in self.go_subdag_slim.go2obj:  # Only connect if parent is also in slim
+                    G.add_edge(parent.id, go_id)
+        G.add_node('GO:0000000', name='root_node', namespace='root_node')
+        G.add_edge('GO:0000000', 'GO:0008150') # biological_process
+        G.add_edge('GO:0000000', 'GO:0005575') # cellular_component
+        G.add_edge('GO:0000000', 'GO:0003674') # molecular_function
+
+        return G
+    
+    def _compute_go_distance_matrix(self):
+        """Compute hop-based distance matrix for GO terms"""
+        go_terms = list(self.go_to_topic.keys())
+        n_terms = len(go_terms)
+        distance_matrix = np.zeros((n_terms, n_terms))
+        
+        # Convert to undirected for shortest path calculation
+        G_undirected = self.go_network.to_undirected()
+        
+        for i, term1 in enumerate(go_terms):
+            for j, term2 in enumerate(go_terms):
+                if i == j:
+                    distance_matrix[i, j] = 0
+                else:
+                    try:
+                        # Use shortest path length as hop distance
+                        distance = nx.shortest_path_length(G_undirected, term1, term2)
+                        distance_matrix[i, j] = distance
+                    except nx.NetworkXNoPath:
+                        # If no path exists, use maximum distance
+                        distance_matrix[i, j] = n_terms * 2  # Large value for disconnected components
+        
+        return distance_matrix
+
+    def _convert_dendrogram_to_hop_distances(self):
+        """Convert BERTopic dendrogram to hop-based distance matrix"""
+        n_topics = len(self.topic_to_go)
+        hop_distance_matrix = np.zeros((n_topics, n_topics))
+        
+        # Create a mapping from topic pairs to their merge level (hop distance)
+        topic_merge_levels = {}
+        
+        # Sort dendrogram by distance to process merges in order
+        sorted_dendrogram = self.bertopic_dendrogram.sort_values('Distance').reset_index(drop=True)
+        
+        # Initialize each topic as its own cluster at level 0
+        topic_clusters = {i: {i} for i in range(n_topics)}
+        next_cluster_id = n_topics
+        
+        for merge_level, row in enumerate(sorted_dendrogram.iterrows()):
+            _, row_data = row
+            left_id = int(row_data['Child_Left_ID'])
+            right_id = int(row_data['Child_Right_ID'])
+            
+            # Get topics in left and right clusters
+            left_topics = topic_clusters.get(left_id, {left_id} if left_id < n_topics else set())
+            right_topics = topic_clusters.get(right_id, {right_id} if right_id < n_topics else set())
+            
+            # Record hop distance between all pairs from different clusters
+            for topic1 in left_topics:
+                for topic2 in right_topics:
+                    if topic1 < n_topics and topic2 < n_topics:
+                        hop_distance = merge_level + 1  # +1 because we start from level 0
+                        hop_distance_matrix[topic1, topic2] = hop_distance
+                        hop_distance_matrix[topic2, topic1] = hop_distance
+            
+            # Create new cluster
+            merged_topics = left_topics.union(right_topics)
+            topic_clusters[next_cluster_id] = merged_topics
+            next_cluster_id += 1
+        
+        return hop_distance_matrix
+
+    def _build_linkage_matrix(self, cont_distance_matrix, hop_distance_matrix, use_hop_distances=True, method='average'):
+        """
+        Build linkage matrix from distance matrix
+        
+        Args:
+            use_hop_distances: If True, use hop-based distances; if False, use cosine distances
+            method: Linkage method ('average', 'complete', 'single', 'ward')
+        """
+        if use_hop_distances:
+            # Use hop-based distances for structural comparison
+            distance_matrix = hop_distance_matrix
+            # Ward linkage is not appropriate for discrete hop distances
+            if method == 'ward':
+                print("Warning: Ward linkage not recommended for hop distances. Using 'average' instead.")
+                method = 'average'
+        else:
+            # Use continuous cosine distances
+            distance_matrix = cont_distance_matrix
+        
+        condensed_matrix = squareform(distance_matrix)
+        linkage_matrix = linkage(condensed_matrix, method=method)
+        return linkage_matrix
+
+    def _min_max_normalize(self, t):
+        return (t - t.min()) / (t.max() - t.min())
+
+    def _normalize_tensor(self, tensor, inf_replacement=2.0):
+        """Normalize tensor with special handling for infinite/large values"""
+        # Find the maximum finite value
+        finite_mask = np.isfinite(tensor) & (tensor < tensor.max())
+        if not np.any(finite_mask):
+            return self._min_max_normalize(tensor)
+        
+        max_finite = tensor[finite_mask].max()
+        print(tensor.max())
+        # If all values are reasonably small, just normalize
+        if tensor.max() < 20:
+            return self._min_max_normalize(tensor)
+        
+        # Handle large values (disconnected components)
+        inf_mask = tensor >= max_finite
+        tensor_norm = tensor.copy()
+        
+        # Normalize finite values to [0, 1]
+        finite_vals = tensor[~inf_mask]
+        if len(finite_vals) > 0:
+            finite_min, finite_max = finite_vals.min(), finite_vals.max()
+            if finite_max > finite_min:
+                tensor_norm[~inf_mask] = (finite_vals - finite_min) / (finite_max - finite_min)
+            else:
+                tensor_norm[~inf_mask] = 0
+        
+        # Replace large values with a constant > 1
+        tensor_norm[inf_mask] = inf_replacement
+        return tensor_norm
+
+    def compare_linkage_approaches(self):
+        """
+        Compare different approaches to linkage calculation
+        """
+        approaches = {
+            'hop_average': {'use_hop': True, 'method': 'average'},
+            'hop_complete': {'use_hop': True, 'method': 'complete'},
+            'continuous_ward': {'use_hop': False, 'method': 'ward'},
+            'continuous_average': {'use_hop': False, 'method': 'average'}
+        }
+        
+        results = {}
+        
+        for approach_name, params in approaches.items():
+            # Build linkage matrices with specified parameters
+            self.bertopic_linkage_matrix = self._build_linkage_matrix(
+                self.bertopic_distance_matrix, self.bertopic_hop_distance_matrix,
+                use_hop_distances=params['use_hop'], 
+                method=params['method']
+            )
+            self.go_linkage_matrix = self._build_linkage_matrix(
+                self.go_distance_matrix_normalized, self.go_distance_matrix,
+                use_hop_distances=params['use_hop'], 
+                method=params['method']
+            )
+            
+            # Compute comparison metrics
+            clustering_metrics = self.compare_hierarchical_clustering()
+            cophenetic_metrics = self.compute_cophenetic_correlation()
+            
+            results[approach_name] = {
+                'clustering_metrics': clustering_metrics,
+                'cophenetic_correlation': cophenetic_metrics['cross_cophenetic_correlation'],
+                'method': params['method'],
+                'distance_type': 'hop-based' if params['use_hop'] else 'continuous'
+            }
+            
+            print(f"\n{approach_name.upper()} Results:")
+            print(f"  Method: {params['method']}, Distance: {'hop-based' if params['use_hop'] else 'continuous'}")
+            print(f"  Cross-cophenetic correlation: {cophenetic_metrics['cross_cophenetic_correlation']:.4f}")
+            avg_ari = np.mean([m['adjusted_rand_index'] for m in clustering_metrics.values()])
+            print(f"  Average ARI: {avg_ari:.4f}")
+        
+        return results
+
+    def compare_distance_matrices(self, use_hop_distances=True):
+        """Compare BERTopic and GO distance matrices"""
+        # Choose which BERTopic matrix to use
+        if use_hop_distances:
+            bert_matrix = self.bertopic_hop_distance_matrix
+            go_matrix = self.go_distance_matrix
+            comparison_type = "hop-based"
+        else:
+            bert_matrix = self.bertopic_distance_matrix
+            go_matrix = self.go_distance_matrix_normalized
+            comparison_type = "cosine-based"
+        
+        # Ensure matrices are same size
+        min_size = min(bert_matrix.shape[0], go_matrix.shape[0])
+        bert_matrix = bert_matrix[:min_size, :min_size]
+        go_matrix = go_matrix[:min_size, :min_size]
+        
+        # Flatten upper triangular parts (excluding diagonal)
+        bert_distances = bert_matrix[np.triu_indices_from(bert_matrix, k=1)]
+        go_distances = go_matrix[np.triu_indices_from(go_matrix, k=1)]
+        
+        # Calculate correlations
+        spearman_corr, spearman_p = spearmanr(bert_distances, go_distances)
+        pearson_corr, pearson_p = pearsonr(bert_distances, go_distances)
+        
+        # Calculate normalized root mean square error
+        rmse = np.sqrt(np.mean((bert_distances - go_distances) ** 2))
+        normalized_rmse = rmse / np.std(go_distances) if np.std(go_distances) > 0 else float('inf')
+        
+        return {
+            'comparison_type': comparison_type,
+            'spearman_correlation': spearman_corr,
+            'spearman_p_value': spearman_p,
+            'pearson_correlation': pearson_corr,
+            'pearson_p_value': pearson_p,
+            'rmse': rmse,
+            'normalized_rmse': normalized_rmse
+        }
+    
+    def compare_hierarchical_clustering(self, n_clusters_list=[3, 5, 7, 10]):
+        """Compare hierarchical clustering results at different cut levels"""
+        results = {}
+        
+        for n_clusters in n_clusters_list:
+            # Get clustering from BERTopic linkage matrix
+            bert_clusters = fcluster(self.bertopic_linkage_matrix, n_clusters, criterion='maxclust')
+            
+            # Get clustering from GO linkage matrix
+            go_clusters = fcluster(self.go_linkage_matrix, n_clusters, criterion='maxclust')
+            
+            # Ensure same length
+            min_len = min(len(bert_clusters), len(go_clusters))
+            bert_clusters = bert_clusters[:min_len]
+            go_clusters = go_clusters[:min_len]
+            
+            # Calculate similarity metrics
+            if len(bert_clusters) == len(go_clusters) and len(set(bert_clusters)) > 1 and len(set(go_clusters)) > 1:
+                ari = adjusted_rand_score(go_clusters, bert_clusters)
+                nmi = normalized_mutual_info_score(go_clusters, bert_clusters)
+                
+                results[n_clusters] = {
+                    'adjusted_rand_index': ari,
+                    'normalized_mutual_info': nmi
+                }
+        
+        return results
+    
+    def compute_cophenetic_correlation(self):
+        """Compute cophenetic correlation coefficient for both hierarchies"""
+        # BERTopic cophenetic correlation
+        bert_condensed = squareform(self.bertopic_distance_matrix)
+        bert_coph_corr, bert_coph_dists = cophenet(self.bertopic_linkage_matrix, bert_condensed)
+        
+        # GO cophenetic correlation
+        go_condensed = squareform(self.go_distance_matrix_normalized)
+        go_coph_corr, go_coph_dists = cophenet(self.go_linkage_matrix, go_condensed)
+        
+        # Correlation between cophenetic distance matrices
+        min_len = min(len(bert_coph_dists), len(go_coph_dists))
+        bert_coph_dists = bert_coph_dists[:min_len]
+        go_coph_dists = go_coph_dists[:min_len]
+        
+        cross_coph_corr, cross_coph_p = pearsonr(bert_coph_dists, go_coph_dists)
+        
+        return {
+            'bertopic_cophenetic_correlation': bert_coph_corr,
+            'go_cophenetic_correlation': go_coph_corr,
+            'cross_cophenetic_correlation': cross_coph_corr,
+            'cross_cophenetic_p_value': cross_coph_p,
+            'bertopic_cophenetic_distances': bert_coph_dists,
+            'go_cophenetic_distances': go_coph_dists
+        }
+    
+    def compute_fowlkes_mallows_index(self, n_clusters_list=[3, 5, 7, 10]):
+        """Compute Fowlkes-Mallows Index at different clustering levels"""
+        def fowlkes_mallows_score(labels_true, labels_pred):
+            """Compute Fowlkes-Mallows Index manually"""
+            labels_true = np.array(labels_true)
+            labels_pred = np.array(labels_pred)
+            
+            n_samples = len(labels_true)
+            
+            # Compute contingency matrix
+            contingency = {}
+            for i in range(n_samples):
+                true_label = labels_true[i]
+                pred_label = labels_pred[i]
+                if (true_label, pred_label) not in contingency:
+                    contingency[(true_label, pred_label)] = 0
+                contingency[(true_label, pred_label)] += 1
+            
+            # Compute TP, FP, FN
+            tp = sum(count * (count - 1) // 2 for count in contingency.values())
+            
+            # Count pairs in same true cluster
+            true_cluster_sizes = {}
+            for label in labels_true:
+                true_cluster_sizes[label] = true_cluster_sizes.get(label, 0) + 1
+            tp_fp = sum(size * (size - 1) // 2 for size in true_cluster_sizes.values())
+            
+            # Count pairs in same predicted cluster
+            pred_cluster_sizes = {}
+            for label in labels_pred:
+                pred_cluster_sizes[label] = pred_cluster_sizes.get(label, 0) + 1
+            tp_fn = sum(size * (size - 1) // 2 for size in pred_cluster_sizes.values())
+            
+            if tp_fp == 0 or tp_fn == 0:
+                return 0.0
+            
+            # Fowlkes-Mallows Index
+            fmi = tp / np.sqrt(tp_fp * tp_fn)
+            return fmi
+        
+        fmi_results = {}
+        
+        for n_clusters in n_clusters_list:
+            # Get clustering from linkage matrices
+            bert_clusters = fcluster(self.bertopic_linkage_matrix, n_clusters, criterion='maxclust')
+            go_clusters = fcluster(self.go_linkage_matrix, n_clusters, criterion='maxclust')
+            
+            # Ensure same length
+            min_len = min(len(bert_clusters), len(go_clusters))
+            bert_clusters = bert_clusters[:min_len]
+            go_clusters = go_clusters[:min_len]
+            
+            # Calculate Fowlkes-Mallows Index
+            fmi = fowlkes_mallows_score(go_clusters, bert_clusters)
+            
+            fmi_results[n_clusters] = fmi
+        
+        return fmi_results
+    
+    def compare_subtree_structures(self, max_depth=3):
+        """Compare local subtree structures between hierarchies"""
+        # Extract subtree patterns from both hierarchies
+        bert_subtree_patterns = self._extract_subtree_patterns(self.bertopic_linkage_matrix, max_depth)
+        go_subtree_patterns = self._extract_subtree_patterns(self.go_linkage_matrix, max_depth)
+        
+        # Compare subtree patterns
+        common_patterns = set(bert_subtree_patterns.keys()) & set(go_subtree_patterns.keys())
+        bert_only_patterns = set(bert_subtree_patterns.keys()) - set(go_subtree_patterns.keys())
+        go_only_patterns = set(go_subtree_patterns.keys()) - set(bert_subtree_patterns.keys())
+        
+        # Calculate pattern similarity
+        total_bert_patterns = sum(bert_subtree_patterns.values())
+        total_go_patterns = sum(go_subtree_patterns.values())
+        common_pattern_score = sum(min(bert_subtree_patterns.get(p, 0), go_subtree_patterns.get(p, 0)) 
+                                 for p in common_patterns)
+        
+        if total_bert_patterns + total_go_patterns > 0:
+            jaccard_similarity = len(common_patterns) / (len(bert_subtree_patterns) + len(go_subtree_patterns) - len(common_patterns))
+            pattern_overlap_score = 2 * common_pattern_score / (total_bert_patterns + total_go_patterns)
+        else:
+            jaccard_similarity = 0
+            pattern_overlap_score = 0
+        
+        return {
+            'jaccard_similarity': jaccard_similarity,
+            'pattern_overlap_score': pattern_overlap_score,
+            'num_common_patterns': len(common_patterns),
+            'num_bert_only_patterns': len(bert_only_patterns),
+            'num_go_only_patterns': len(go_only_patterns),
+            'bert_subtree_patterns': bert_subtree_patterns,
+            'go_subtree_patterns': go_subtree_patterns
+        }
+    
+    def _extract_subtree_patterns(self, linkage_matrix, max_depth):
+        """Extract subtree patterns from linkage matrix"""
+        n_leaves = linkage_matrix.shape[0] + 1
+        patterns = defaultdict(int)
+        
+        # Build tree structure from linkage matrix
+        tree_structure = self._build_tree_from_linkage(linkage_matrix)
+        
+        # Extract patterns for each internal node
+        for node_id in range(n_leaves, n_leaves + linkage_matrix.shape[0]):
+            pattern = self._get_subtree_pattern(tree_structure, node_id, max_depth)
+            if pattern:
+                patterns[pattern] += 1
+        
+        return dict(patterns)
+    
+    def _build_tree_from_linkage(self, linkage_matrix):
+        """Build tree structure from linkage matrix"""
+        n_leaves = linkage_matrix.shape[0] + 1
+        tree = {}
+        
+        for i, row in enumerate(linkage_matrix):
+            node_id = n_leaves + i
+            left_child = int(row[0])
+            right_child = int(row[1])
+            tree[node_id] = {'left': left_child, 'right': right_child}
+        
+        return tree
+    
+    def _get_subtree_pattern(self, tree, node_id, max_depth, current_depth=0):
+        """Get subtree pattern as a string representation"""
+        if current_depth >= max_depth or node_id not in tree:
+            return "L"  # Leaf
+        
+        left_pattern = self._get_subtree_pattern(tree, tree[node_id]['left'], max_depth, current_depth + 1)
+        right_pattern = self._get_subtree_pattern(tree, tree[node_id]['right'], max_depth, current_depth + 1)
+        
+        # Create a canonical representation
+        if left_pattern <= right_pattern:
+            return f"({left_pattern},{right_pattern})"
+        else:
+            return f"({right_pattern},{left_pattern})"
+    
+    def analyze_namespace_preservation(self):
+        """Analyze how well BERTopic preserves GO namespace structure"""
+        namespace_groups = defaultdict(list)
+        for go_id in self.goslim_terms:
+            if go_id in self.go_dag:
+                namespace = self.go_dag[go_id].namespace
+                topic_id = self.go_to_topic.get(go_id)
+                if topic_id is not None:
+                    namespace_groups[namespace].append(topic_id)
+        
+        # Use hop-based distances for better comparison
+        within_namespace_distances = []
+        between_namespace_distances = []
+        
+        for namespace, topics in namespace_groups.items():
+            # Within-namespace distances
+            for i, j in itertools.combinations(topics, 2):
+                if i < self.bertopic_hop_distance_matrix.shape[0] and j < self.bertopic_hop_distance_matrix.shape[0]:
+                    within_namespace_distances.append(self.bertopic_hop_distance_matrix[i, j])
+        
+        # Between-namespace distances
+        namespaces = list(namespace_groups.keys())
+        for ns1, ns2 in itertools.combinations(namespaces, 2):
+            topics1 = namespace_groups[ns1]
+            topics2 = namespace_groups[ns2]
+            for i in topics1:
+                for j in topics2:
+                    if i < self.bertopic_hop_distance_matrix.shape[0] and j < self.bertopic_hop_distance_matrix.shape[0]:
+                        between_namespace_distances.append(self.bertopic_hop_distance_matrix[i, j])
+        
+        # Calculate namespace preservation score
+        if within_namespace_distances and between_namespace_distances:
+            within_mean = np.mean(within_namespace_distances)
+            between_mean = np.mean(between_namespace_distances)
+            namespace_score = (between_mean - within_mean) / (between_mean + within_mean) if (between_mean + within_mean) > 0 else 0
+        else:
+            namespace_score = 0
+        
+        return {
+            'namespace_preservation_score': namespace_score,
+            'within_namespace_mean_distance': np.mean(within_namespace_distances) if within_namespace_distances else 0,
+            'between_namespace_mean_distance': np.mean(between_namespace_distances) if between_namespace_distances else 0,
+            'namespace_groups': dict(namespace_groups)
+        }
+    
+    def analyze_parent_child_relationships(self):
+        """Analyze how well BERTopic preserves parent-child relationships"""
+        parent_child_bert_distances = []
+        non_related_bert_distances = []
+        
+        # Get all parent-child pairs from GO network
+        parent_child_pairs = list(self.go_network.edges())
+        
+        # Get all non-related pairs
+        all_nodes = list(self.go_network.nodes())
+        all_pairs = list(itertools.combinations(all_nodes, 2))
+        non_related_pairs = [pair for pair in all_pairs if pair not in parent_child_pairs and (pair[1], pair[0]) not in parent_child_pairs]
+        
+        # Calculate distances for parent-child pairs using hop distances
+        for parent, child in parent_child_pairs:
+            parent_topic = self.go_to_topic.get(parent)
+            child_topic = self.go_to_topic.get(child)
+            if parent_topic is not None and child_topic is not None:
+                if parent_topic < self.bertopic_hop_distance_matrix.shape[0] and child_topic < self.bertopic_hop_distance_matrix.shape[0]:
+                    parent_child_bert_distances.append(self.bertopic_hop_distance_matrix[parent_topic, child_topic])
+        
+        # Calculate distances for non-related pairs (sample to avoid too many comparisons)
+        non_related_sample = non_related_pairs[:len(parent_child_bert_distances) * 2]
+        for node1, node2 in non_related_sample:
+            topic1 = self.go_to_topic.get(node1)
+            topic2 = self.go_to_topic.get(node2)
+            if topic1 is not None and topic2 is not None:
+                if topic1 < self.bertopic_hop_distance_matrix.shape[0] and topic2 < self.bertopic_hop_distance_matrix.shape[0]:
+                    non_related_bert_distances.append(self.bertopic_hop_distance_matrix[topic1, topic2])
+        
+        # Calculate parent-child preservation score
+        if parent_child_bert_distances and non_related_bert_distances:
+            pc_mean = np.mean(parent_child_bert_distances)
+            nr_mean = np.mean(non_related_bert_distances)
+            pc_preservation_score = (nr_mean - pc_mean) / (nr_mean + pc_mean) if (nr_mean + pc_mean) > 0 else 0
+        else:
+            pc_preservation_score = 0
+        
+        return {
+            'parent_child_preservation_score': pc_preservation_score,
+            'parent_child_mean_distance': np.mean(parent_child_bert_distances) if parent_child_bert_distances else 0,
+            'non_related_mean_distance': np.mean(non_related_bert_distances) if non_related_bert_distances else 0,
+            'num_parent_child_pairs': len(parent_child_bert_distances),
+            'num_non_related_pairs': len(non_related_bert_distances)
+        }
+
+    def analyze_dendrogram_structure(self):
+        """Analyze the structural properties of both dendrograms"""
+        # Calculate merge order correlation
+        bert_merge_order = np.argsort(self.bertopic_dendrogram['Distance'].values)
+        go_merge_order = np.argsort(self.go_linkage_matrix[:, 2])
+        
+        min_len = min(len(bert_merge_order), len(go_merge_order))
+        merge_order_corr, merge_order_p = spearmanr(bert_merge_order[:min_len], go_merge_order[:min_len])
+        
+        # Calculate height variance similarity
+        bert_height_var = np.var(self.bertopic_dendrogram['Distance'].values)
+        go_height_var = np.var(self.go_linkage_matrix[:, 2])
+        height_var_ratio = min(bert_height_var, go_height_var) / max(bert_height_var, go_height_var)
+        
+        return {
+            'merge_order_correlation': merge_order_corr,
+            'merge_order_p_value': merge_order_p,
+            'height_variance_ratio': height_var_ratio,
+            'bertopic_height_variance': bert_height_var,
+            'go_height_variance': go_height_var
+        }
+    
+    def _interpret_metric(self, metric_name, value):
+        """Interpret metric values and provide qualitative assessment"""
+        interpretations = {
+            'spearman_correlation': {
+                'range': (-1, 1),
+                'thresholds': {'poor': 0.3, 'fair': 0.5, 'good': 0.7, 'excellent': 0.9},
+                'higher_better': True,
+                'description': 'Spearman correlation measures monotonic relationship between distance matrices'
+            },
+            'pearson_correlation': {
+                'range': (-1, 1),
+                'thresholds': {'poor': 0.3, 'fair': 0.5, 'good': 0.7, 'excellent': 0.9},
+                'higher_better': True,
+                'description': 'Pearson correlation measures linear relationship between distance matrices'
+            },
+            'normalized_rmse': {
+                'range': (0, float('inf')),
+                'thresholds': {'excellent': 0.2, 'good': 0.5, 'fair': 1.0, 'poor': float('inf')},
+                'higher_better': False,
+                'description': 'Normalized RMSE measures prediction error relative to data variability'
+            },
+            'adjusted_rand_index': {
+                'range': (-1, 1),
+                'thresholds': {'poor': 0.2, 'fair': 0.4, 'good': 0.6, 'excellent': 0.8},
+                'higher_better': True,
+                'description': 'ARI measures similarity between clusterings, adjusted for chance'
+            },
+            'normalized_mutual_info': {
+                'range': (0, 1),
+                'thresholds': {'poor': 0.2, 'fair': 0.4, 'good': 0.6, 'excellent': 0.8},
+                'higher_better': True,
+                'description': 'NMI measures mutual information between clusterings, normalized'
+            },
+            'fowlkes_mallows_index': {
+                'range': (0, 1),
+                'thresholds': {'poor': 0.3, 'fair': 0.5, 'good': 0.7, 'excellent': 0.9},
+                'higher_better': True,
+                'description': 'FMI measures similarity between clusterings using precision and recall'
+            },
+            'cophenetic_correlation': {
+                'range': (0, 1),
+                'thresholds': {'poor': 0.5, 'fair': 0.7, 'good': 0.8, 'excellent': 0.9},
+                'higher_better': True,
+                'description': 'Cophenetic correlation measures how well the hierarchy preserves original distances'
+            },
+            'namespace_preservation_score': {
+                'range': (-1, 1),
+                'thresholds': {'poor': 0.1, 'fair': 0.3, 'good': 0.5, 'excellent': 0.7},
+                'higher_better': True,
+                'description': 'Measures how well GO namespace structure is preserved in BERTopic hierarchy'
+            },
+            'parent_child_preservation_score': {
+                'range': (-1, 1),
+                'thresholds': {'poor': 0.1, 'fair': 0.3, 'good': 0.5, 'excellent': 0.7},
+                'higher_better': True,
+                'description': 'Measures how well GO parent-child relationships are preserved'
+            },
+            'jaccard_similarity': {
+                'range': (0, 1),
+                'thresholds': {'poor': 0.2, 'fair': 0.4, 'good': 0.6, 'excellent': 0.8},
+                'higher_better': True,
+                'description': 'Jaccard similarity between subtree pattern sets'
+            },
+            'pattern_overlap_score': {
+                'range': (0, 1),
+                'thresholds': {'poor': 0.2, 'fair': 0.4, 'good': 0.6, 'excellent': 0.8},
+                'higher_better': True,
+                'description': 'Overlap score for subtree patterns considering frequencies'
+            }
+        }
+        
+        if metric_name not in interpretations:
+            return "Unknown metric"
+        
+        info = interpretations[metric_name]
+        higher_better = info['higher_better']
+        thresholds = info['thresholds']
+        
+        if higher_better:
+            if value >= thresholds['excellent']:
+                quality = "excellent"
+            elif value >= thresholds['good']:
+                quality = "good"
+            elif value >= thresholds['fair']:
+                quality = "fair"
+            else:
+                quality = "poor"
+        else:
+            if value <= thresholds['excellent']:
+                quality = "excellent"
+            elif value <= thresholds['good']:
+                quality = "good"
+            elif value <= thresholds['fair']:
+                quality = "fair"
+            else:
+                quality = "poor"
+        
+        return {
+            'quality': quality,
+            'description': info['description'],
+            'range': info['range'],
+            'value': value
+        }
+
+    def compute_comprehensive_score(self):
+        """Compute a comprehensive comparison score"""
+        # Get individual metrics
+        distance_metrics_cosine = self.compare_distance_matrices(use_hop_distances=False)
+        distance_metrics_hop = self.compare_distance_matrices(use_hop_distances=True)
+        clustering_metrics = self.compare_hierarchical_clustering()
+        namespace_metrics = self.analyze_namespace_preservation()
+        parent_child_metrics = self.analyze_parent_child_relationships()
+        
+        # Dendrogram-based metrics
+        cophenetic_metrics = self.compute_cophenetic_correlation()
+        fmi_metrics = self.compute_fowlkes_mallows_index()
+        dendrogram_structure_metrics = self.analyze_dendrogram_structure()
+        subtree_metrics = self.compare_subtree_structures()
+        
+        # Weighted combination of metrics (focusing on hop-based distances)
+        score_components = {
+            'hop_distance_correlation': distance_metrics_hop['spearman_correlation'] * 0.20,
+            'cosine_distance_correlation': distance_metrics_cosine['spearman_correlation'] * 0.10,
+            'clustering_similarity': np.mean([metrics['adjusted_rand_index'] for metrics in clustering_metrics.values()]) * 0.15,
+            'namespace_preservation': max(0, namespace_metrics['namespace_preservation_score']) * 0.10,
+            'parent_child_preservation': max(0, parent_child_metrics['parent_child_preservation_score']) * 0.10,
+            'cophenetic_correlation': cophenetic_metrics['cross_cophenetic_correlation'] * 0.15,
+            'fowlkes_mallows_index': np.mean(list(fmi_metrics.values())) * 0.10,
+            'dendrogram_structure': dendrogram_structure_metrics['merge_order_correlation'] * 0.05,
+            'subtree_similarity': subtree_metrics['jaccard_similarity'] * 0.05
+        }
+        
+        comprehensive_score = sum(score_components.values())
+        
+        return {
+            'comprehensive_score': comprehensive_score,
+            'score_components': score_components,
+            'detailed_metrics': {
+                'distance_metrics_cosine': distance_metrics_cosine,
+                'distance_metrics_hop': distance_metrics_hop,
+                'clustering_metrics': clustering_metrics,
+                'namespace_metrics': namespace_metrics,
+                'parent_child_metrics': parent_child_metrics,
+                'cophenetic_metrics': cophenetic_metrics,
+                'fowlkes_mallows_metrics': fmi_metrics,
+                'dendrogram_structure_metrics': dendrogram_structure_metrics,
+                'subtree_metrics': subtree_metrics
+            }
+        }
+    
+    def visualize_comparison(self, save_path=None):
+        """Create visualizations comparing the hierarchies"""
+        fig, axes = plt.subplots(4, 2, figsize=(15, 24))
+        
+        # Plot 1: Hop-based distance matrix comparison
+        ax1 = axes[0, 0]
+        min_size = min(self.bertopic_hop_distance_matrix.shape[0], self.go_distance_matrix.shape[0])
+        bert_hop_matrix = self.bertopic_hop_distance_matrix[:min_size, :min_size]
+        go_matrix = self.go_distance_matrix[:min_size, :min_size]
+        
+        bert_hop_distances = bert_hop_matrix[np.triu_indices_from(bert_hop_matrix, k=1)]
+        go_distances = go_matrix[np.triu_indices_from(go_matrix, k=1)]
+        
+        ax1.scatter(go_distances, bert_hop_distances, alpha=0.6, color='blue')
+        ax1.set_xlabel('GO Hop Distance')
+        ax1.set_ylabel('BERTopic Hop Distance')
+        ax1.set_title('Hop-based Distance Matrix Comparison')
+        
+        # Add correlation info
+        hop_corr = self.compare_distance_matrices(use_hop_distances=True)
+        ax1.text(0.05, 0.95, f"Spearman r = {hop_corr['spearman_correlation']:.3f}", 
+                transform=ax1.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        # Plot 2: Cosine-based distance matrix comparison
+        ax2 = axes[0, 1]
+        bert_cosine_matrix = self.bertopic_distance_matrix[:min_size, :min_size]
+        bert_cosine_distances = bert_cosine_matrix[np.triu_indices_from(bert_cosine_matrix, k=1)]
+
+        go_cosine_matrix = self.go_distance_matrix_normalized[:min_size, :min_size]
+        go_cosine_distances = go_cosine_matrix[np.triu_indices_from(go_cosine_matrix, k=1)]
+        
+        ax2.scatter(go_cosine_distances, bert_cosine_distances, alpha=0.6, color='red')
+        ax2.set_xlabel('GO Cosine Distance')
+        ax2.set_ylabel('BERTopic Cosine Distance')
+        ax2.set_title('Cosine-based Distance Matrix Comparison')
+        
+        # Add correlation info
+        cosine_corr = self.compare_distance_matrices(use_hop_distances=False)
+        ax2.text(0.05, 0.95, f"Spearman r = {cosine_corr['spearman_correlation']:.3f}", 
+                transform=ax2.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        # Plot 3: Cophenetic distance comparison
+        ax3 = axes[1, 0]
+        cophenetic_metrics = self.compute_cophenetic_correlation()
+        bert_coph = cophenetic_metrics['bertopic_cophenetic_distances']
+        go_coph = cophenetic_metrics['go_cophenetic_distances']
+        
+        ax3.scatter(go_coph, bert_coph, alpha=0.6, color='orange')
+        ax3.set_xlabel('GO Cophenetic Distance')
+        ax3.set_ylabel('BERTopic Cophenetic Distance')
+        ax3.set_title(f'Cophenetic Distance Comparison\nr = {cophenetic_metrics["cross_cophenetic_correlation"]:.3f}')
+        
+        # Plot 4: BERTopic hop distance matrix heatmap
+        ax4 = axes[1, 1]
+        sns.heatmap(bert_hop_matrix, ax=ax4, cmap='viridis', cbar=True, square=True)
+        ax4.set_title('BERTopic Hop Distance Matrix')
+        
+        # Plot 5: GO distance matrix heatmap
+        ax5 = axes[2, 0]
+        sns.heatmap(go_matrix, ax=ax5, cmap='viridis', cbar=True, square=True)
+        ax5.set_title('GO Hop Distance Matrix')
+        
+        # Plot 6: Clustering comparison metrics
+        ax6 = axes[2, 1]
+        clustering_results = self.compare_hierarchical_clustering()
+        fmi_results = self.compute_fowlkes_mallows_index()
+        
+        n_clusters = list(clustering_results.keys())
+        ari_scores = [clustering_results[k]['adjusted_rand_index'] for k in n_clusters]
+        nmi_scores = [clustering_results[k]['normalized_mutual_info'] for k in n_clusters]
+        fmi_scores = [fmi_results[k] for k in n_clusters]
+        
+        ax6.plot(n_clusters, ari_scores, 'o-', label='Adjusted Rand Index', linewidth=2)
+        ax6.plot(n_clusters, nmi_scores, 's-', label='Normalized Mutual Info', linewidth=2)
+        ax6.plot(n_clusters, fmi_scores, '^-', label='Fowlkes-Mallows Index', linewidth=2)
+        ax6.set_xlabel('Number of Clusters')
+        ax6.set_ylabel('Similarity Score')
+        ax6.set_title('Clustering Similarity vs Number of Clusters')
+        ax6.legend()
+        ax6.grid(True, alpha=0.3)
+        ax6.set_ylim(0, 1)
+        
+        # Plot 7: Namespace preservation analysis
+        ax7 = axes[3, 0]
+        namespace_metrics = self.analyze_namespace_preservation()
+        
+        # Create bar plot for namespace preservation
+        within_dist = namespace_metrics['within_namespace_mean_distance']
+        between_dist = namespace_metrics['between_namespace_mean_distance']
+        
+        bars = ax7.bar(['Within Namespace', 'Between Namespace'], [within_dist, between_dist], 
+                      color=['green', 'red'], alpha=0.7)
+        ax7.set_ylabel('Mean Distance')
+        ax7.set_title(f'Namespace Preservation\nScore: {namespace_metrics["namespace_preservation_score"]:.3f}')
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax7.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.3f}', ha='center', va='bottom')
+        
+        # Plot 8: Parent-child relationship preservation
+        ax8 = axes[3, 1]
+        pc_metrics = self.analyze_parent_child_relationships()
+        
+        # Create bar plot for parent-child preservation
+        pc_dist = pc_metrics['parent_child_mean_distance']
+        nr_dist = pc_metrics['non_related_mean_distance']
+        
+        bars = ax8.bar(['Parent-Child', 'Non-Related'], [pc_dist, nr_dist], 
+                      color=['blue', 'orange'], alpha=0.7)
+        ax8.set_ylabel('Mean Distance')
+        ax8.set_title(f'Parent-Child Preservation\nScore: {pc_metrics["parent_child_preservation_score"]:.3f}')
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax8.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.3f}', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        plt.show()
+        
+        return fig
+
+# Updated comparison function
+def compare_hierarchies(go_dag, goslim_terms, topic_model, documents):
+    """
+    Main function to compare GO and BERTopic hierarchies
+    
+    Args:
+        go_dag: GODag object
+        goslim_terms: Set of GO Slim terms
+        topic_model: BERTopic model with custom labels as GO terms
+        documents: Documents used in topic modeling
+    
+    Returns:
+        Dictionary with comprehensive comparison results
+    """
+    comparator = GOHierarchyComparator(go_dag, goslim_terms, topic_model, documents)
+    
+    # Compute comprehensive comparison
+    results = comparator.compute_comprehensive_score()
+    
+    # Create visualizations
+    comparator.visualize_comparison()
+    
+    # Print summary with interpretations
+    print("=== GO Hierarchy Comparison Results ===")
+    print(f"Comprehensive Score: {results['comprehensive_score']:.4f}")
+    print(f"Score Range: [-1.0, 1.0] (higher is better)")
+    
+    print("\n=== Score Components ===")
+    for component, score in results['score_components'].items():
+        print(f"  {component}: {score:.4f}")
+    
+    print("\n=== Detailed Metrics with Interpretations ===")
+    
+    # Distance metrics
+    print("\n--- Distance Correlation Metrics ---")
+    hop_metrics = results['detailed_metrics']['distance_metrics_hop']
+    cosine_metrics = results['detailed_metrics']['distance_metrics_cosine']
+    
+    hop_interp = comparator._interpret_metric('spearman_correlation', hop_metrics['spearman_correlation'])
+    cosine_interp = comparator._interpret_metric('spearman_correlation', cosine_metrics['spearman_correlation'])
+    
+    print(f"  Hop-based Spearman Correlation: {hop_metrics['spearman_correlation']:.4f} ({hop_interp['quality']})")
+    print(f"    Range: {hop_interp['range']}, {hop_interp['description']}")
+    print(f"  Cosine-based Spearman Correlation: {cosine_metrics['spearman_correlation']:.4f} ({cosine_interp['quality']})")
+    print(f"    Range: {cosine_interp['range']}, {cosine_interp['description']}")
+    
+    # Clustering metrics
+    print("\n--- Clustering Similarity Metrics ---")
+    clustering_metrics = results['detailed_metrics']['clustering_metrics']
+    fmi_metrics = results['detailed_metrics']['fowlkes_mallows_metrics']
+    
+    avg_ari = np.mean([metrics['adjusted_rand_index'] for metrics in clustering_metrics.values()])
+    avg_nmi = np.mean([metrics['normalized_mutual_info'] for metrics in clustering_metrics.values()])
+    avg_fmi = np.mean(list(fmi_metrics.values()))
+    
+    ari_interp = comparator._interpret_metric('adjusted_rand_index', avg_ari)
+    nmi_interp = comparator._interpret_metric('normalized_mutual_info', avg_nmi)
+    fmi_interp = comparator._interpret_metric('fowlkes_mallows_index', avg_fmi)
+    
+    print(f"  Average Adjusted Rand Index: {avg_ari:.4f} ({ari_interp['quality']})")
+    print(f"    Range: {ari_interp['range']}, {ari_interp['description']}")
+    print(f"  Average Normalized Mutual Info: {avg_nmi:.4f} ({nmi_interp['quality']})")
+    print(f"    Range: {nmi_interp['range']}, {nmi_interp['description']}")
+    print(f"  Average Fowlkes-Mallows Index: {avg_fmi:.4f} ({fmi_interp['quality']})")
+    print(f"    Range: {fmi_interp['range']}, {fmi_interp['description']}")
+    
+    # Cophenetic correlation
+    print("\n--- Cophenetic Correlation ---")
+    cophenetic_metrics = results['detailed_metrics']['cophenetic_metrics']
+    coph_interp = comparator._interpret_metric('cophenetic_correlation', cophenetic_metrics['cross_cophenetic_correlation'])
+    
+    print(f"  Cross-Cophenetic Correlation: {cophenetic_metrics['cross_cophenetic_correlation']:.4f} ({coph_interp['quality']})")
+    print(f"    Range: {coph_interp['range']}, {coph_interp['description']}")
+    
+    # Dendrogram structure
+    print("\n--- Dendrogram Structure ---")
+    dendrogram_metrics = results['detailed_metrics']['dendrogram_structure_metrics']
+    merge_interp = comparator._interpret_metric('spearman_correlation', dendrogram_metrics['merge_order_correlation'])
+    
+    print(f"  Merge Order Correlation: {dendrogram_metrics['merge_order_correlation']:.4f} ({merge_interp['quality']})")
+    print(f"    Range: {merge_interp['range']}, {merge_interp['description']}")
+    
+    # GO-specific metrics
+    print("\n--- GO-Specific Preservation ---")
+    namespace_metrics = results['detailed_metrics']['namespace_metrics']
+    parent_child_metrics = results['detailed_metrics']['parent_child_metrics']
+    
+    ns_interp = comparator._interpret_metric('namespace_preservation_score', namespace_metrics['namespace_preservation_score'])
+    pc_interp = comparator._interpret_metric('parent_child_preservation_score', parent_child_metrics['parent_child_preservation_score'])
+    
+    print(f"  Namespace Preservation: {namespace_metrics['namespace_preservation_score']:.4f} ({ns_interp['quality']})")
+    print(f"    Range: {ns_interp['range']}, {ns_interp['description']}")
+    print(f"  Parent-Child Preservation: {parent_child_metrics['parent_child_preservation_score']:.4f} ({pc_interp['quality']})")
+    print(f"    Range: {pc_interp['range']}, {pc_interp['description']}")
+    
+    # Subtree structure
+    print("\n--- Subtree Structure ---")
+    subtree_metrics = results['detailed_metrics']['subtree_metrics']
+    jaccard_interp = comparator._interpret_metric('jaccard_similarity', subtree_metrics['jaccard_similarity'])
+    pattern_interp = comparator._interpret_metric('pattern_overlap_score', subtree_metrics['pattern_overlap_score'])
+    
+    print(f"  Jaccard Similarity: {subtree_metrics['jaccard_similarity']:.4f} ({jaccard_interp['quality']})")
+    print(f"    Range: {jaccard_interp['range']}, {jaccard_interp['description']}")
+    print(f"  Pattern Overlap Score: {subtree_metrics['pattern_overlap_score']:.4f} ({pattern_interp['quality']})")
+    print(f"    Range: {pattern_interp['range']}, {pattern_interp['description']}")
+    
+    print(f"\n=== Summary ===")
+    print(f"Total patterns compared: {subtree_metrics['num_common_patterns']} common, "
+          f"{subtree_metrics['num_bert_only_patterns']} BERTopic-only, "
+          f"{subtree_metrics['num_go_only_patterns']} GO-only")
+    
+    return results
+
+def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_cols: List[str], go_col: str, go_dag: any, goslim_terms: Set[str], vocab_lineage_list: Dict,
+                                              token_len_thr: int = 0, lambda_smooth: float = 0.1, alpha: float = 1.0, beta: float = 0.5, theta: float = 0.7) -> pd.DataFrame:
+    """
+    Compares different tokenization methods by training BERTopic models and evaluating their hierarchical congruence with the GO DAG.
+
+    Args:
+        df_train: The training DataFrame.
+        tokenizer_cols: A list of tokenizer column names to compare.
+        go_col: The name of the column with GO labels.
+        go_dag: The GODag object.
+        goslim_terms: A set of GO Slim terms.
+        vocab_lineage_list: A dictionary containing vocabulary lineage information.
+        token_len_thr: The minimum token length.
+        lambda_smooth, alpha, beta, theta: Parameters for the graph-aware model.
+
+    Returns:
+        A DataFrame summarizing the hierarchical comparison results.
+    """
+    results = []
+
+    for tokenizer_col in tqdm(tokenizer_cols, desc="Comparing Tokenizers for Hierarchy"):
+        print()
+        print(f"--- Evaluating Hierarchy for Tokenizer: {tokenizer_col} ---")
+        documents_train = create_unit_documents(df_train, tokenizer_col, token_len_thr)
+        go_labels_train = create_go_labels(df_train, go_col)
+
+        # Standard BERTopic
+        topic_model_std, _ = create_bertopic_model(documents_train, go_labels_train, token_len_thr)
+        comparator_std = GOHierarchyComparator(go_dag, goslim_terms, topic_model_std, documents_train)
+        eval_std = comparator_std.compute_comprehensive_score()
+        results.append({
+            'tokenizer': tokenizer_col,
+            'model': 'Standard BERTopic',
+            'comprehensive_score': eval_std['comprehensive_score'],
+            **eval_std['score_components']
+        })
+
+        # Graph-Aware BERTopic
+        unit_relationships = {'hierarchical': {}, 'mutational': {}}
+        if tokenizer_col in vocab_lineage_list:
+            for unit, lineage in vocab_lineage_list[tokenizer_col].items():
+                if lineage.get('child_pair'):
+                    unit_relationships['hierarchical'][unit] = lineage['child_pair']
+                if lineage.get('child_mutation'):
+                    unit_relationships['mutational'][unit] = lineage['child_mutation']
+        
+        topic_model_graph, _, _ = create_graph_aware_bertopic_model(
+            documents_train, go_labels_train, unit_relationships, token_len_thr, lambda_smooth, alpha, beta, theta
+        )
+        comparator_graph = GOHierarchyComparator(go_dag, goslim_terms, topic_model_graph, documents_train)
+        eval_graph = comparator_graph.compute_comprehensive_score()
+        results.append({
+            'tokenizer': tokenizer_col,
+            'model': 'Graph-Aware BERTopic',
+            'comprehensive_score': eval_graph['comprehensive_score'],
+            **eval_graph['score_components']
+        })
+        
+    return pd.DataFrame(results)
