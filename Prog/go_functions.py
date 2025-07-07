@@ -85,7 +85,7 @@ def create_go_labels(df: pd.DataFrame, go_col: str = 'go_id') -> List[List[str]]
     return df[go_col].tolist()
 
 # Function to create a standard BERTopic model for manual topic modeling
-def create_bertopic_model(documents: List[str], go_labels: List[str], token_len_thr: int = 0) -> Tuple[BERTopic, np.ndarray]:
+def create_bertopic_model(documents: List[str], go_labels: List[str], token_len_thr: int = 0, top_n_words: int = 10) -> Tuple[BERTopic, np.ndarray]:
     """
     Creates and fits a standard BERTopic model for manual topic modeling based on GO labels.
 
@@ -93,6 +93,7 @@ def create_bertopic_model(documents: List[str], go_labels: List[str], token_len_
         documents: A list of protein sequences represented as documents.
         go_labels: A list of GO labels corresponding to each document.
         token_len_thr: The minimum length of a token to be included.
+        top_n_words: The number of words per topic to extract. 
 
     Returns:
         A tuple containing the trained BERTopic model and the assigned topics array.
@@ -122,6 +123,7 @@ def create_bertopic_model(documents: List[str], go_labels: List[str], token_len_
 
     # Create BERTopic model without a specified embedding model for manual topic modeling
     topic_model = BERTopic(
+        top_n_words=top_n_words,
         vectorizer_model=vectorizer_model,
         ctfidf_model=ctfidf_model,
         embedding_model=empty_embedding_model,
@@ -133,14 +135,14 @@ def create_bertopic_model(documents: List[str], go_labels: List[str], token_len_
     # Manually assign topics based on GO terms
     topics = np.argmax(go_binary, axis=1)
     topics[np.sum(go_binary, axis=1) == 0] = -1  # Mark proteins with no GO term as outliers
-    
-    # Match topic names with GO term IDs
-    topic_labels = {i: lb.classes_[i] for i in range(len(lb.classes_))}
-    topic_labels[-1] = "Outlier"
-    
+
     # Fit the model with the documents and manually assigned topics
     topic_model.fit_transform(documents, y=topics)
-    topic_model.set_topic_labels(topic_labels)
+    
+    # Match topic names with GO term IDs
+    mappings = topic_model.topic_mapper_.get_mappings()
+    mappings = {value: lb.classes_[key] for key, value in mappings.items()}
+    topic_model.set_topic_labels(mappings)
     
     return topic_model, topics
 
@@ -299,6 +301,7 @@ def create_graph_aware_bertopic_model(documents: List[str],
                                       go_labels: List[str],
                                       unit_relationships: Optional[Dict[str, Dict]] = None,
                                       token_len_thr: int = 0,
+                                      top_n_words: int = 10,
                                       lambda_smooth: float = 0.1,
                                       alpha: float = 1.0,
                                       beta: float = 0.5,
@@ -311,6 +314,7 @@ def create_graph_aware_bertopic_model(documents: List[str],
         go_labels: A list of GO labels for each document.
         unit_relationships: A dictionary of unit relationships for building the similarity matrix.
         token_len_thr: The minimum length of a token to be included.
+        top_n_words: The number of words per topic to extract. 
         lambda_smooth: The graph smoothing parameter.
         alpha: Weight for hierarchical relationships.
         beta: Weight for sibling relationships.
@@ -323,7 +327,7 @@ def create_graph_aware_bertopic_model(documents: List[str],
     lb = LabelBinarizer()
     go_binary = lb.fit_transform(go_labels)
     
-    temp_topic_model, _ = create_bertopic_model(documents, go_labels, token_len_thr)
+    temp_topic_model, _ = create_bertopic_model(documents, go_labels, token_len_thr, top_n_words)
     vocabulary = temp_topic_model.get_params()['vectorizer_model'].vocabulary_
 
     similarity_matrix = None
@@ -359,17 +363,19 @@ def create_graph_aware_bertopic_model(documents: List[str],
         embedding_model=empty_embedding_model,
         umap_model=empty_dimensionality_model,
         hdbscan_model=empty_cluster_model,
+        top_n_words=top_n_words,
         verbose=False
     )
     
     topics = np.argmax(go_binary, axis=1)
     topics[np.sum(go_binary, axis=1) == 0] = -1
     
-    topic_labels = {i: lb.classes_[i] for i in range(len(lb.classes_))}
-    topic_labels[-1] = "Outlier"
-    
     topic_model.fit_transform(documents, y=topics)
-    topic_model.set_topic_labels(topic_labels)
+
+    # Match topic names with GO term IDs
+    mappings = topic_model.topic_mapper_.get_mappings()
+    mappings = {value: lb.classes_[key] for key, value in mappings.items()}
+    topic_model.set_topic_labels(mappings)
     
     # print(f"Model trained with {len(set(topics))} topics")
     # print(f"Graph smoothing parameter λ = {lambda_smooth}")
@@ -484,6 +490,7 @@ def evaluate_go_term_representations(df_test: pd.DataFrame, topic_model: BERTopi
             go_scores = {go_name: sum(score * token_counts.get(unit, 0) for unit, score in rep.items()) for go_name, rep in go_term_representations.items()}
         else:
             go_scores = {go_name: sum(score for unit, score in rep.items() if unit in token_counts) for go_name, rep in go_term_representations.items()}
+            # go_scores = {go_name: sum(len(rep)-idx for idx, (unit, score) in enumerate(rep.items()) if unit in token_counts) for go_name, rep in go_term_representations.items()}
 
         if not go_scores:
             continue
@@ -677,7 +684,7 @@ def visualize_comparison_results(df_results: pd.DataFrame, methods: List[str], m
         plt.show()
 
 def compare_tokenization_methods(df_train: pd.DataFrame, df_test: pd.DataFrame, tokenizer_cols: List[str], go_col: str, vocab_lineage_list: Dict,
-                                 token_len_thr: int = 0, raw_sequence_col: str = 'sequence', raw_or_tokenized: str = 'tokenized', 
+                                 token_len_thr: int = 0, top_n_words: int = 10, raw_sequence_col: str = 'sequence', raw_or_tokenized: str = 'tokenized', 
                                  scoring_type: str = 'exist', lambda_smooth: float = 0.1, alpha: float = 1.0, beta: float = 0.5, theta: float = 0.7) -> pd.DataFrame:
     """
     Compares different tokenization methods by training and evaluating BERTopic models.
@@ -689,6 +696,7 @@ def compare_tokenization_methods(df_train: pd.DataFrame, df_test: pd.DataFrame, 
         go_col: The name of the column with GO labels.
         vocab_lineage_list: A dictionary containing vocabulary lineage information.
         token_len_thr: The minimum token length.
+        top_n_words: The number of words per topic.
         raw_sequence_col: The column with raw sequences.
         raw_or_tokenized: The evaluation mode ('raw' or 'tokenized').
         scoring_type: The scoring type ('exist' or 'freq').
@@ -706,7 +714,7 @@ def compare_tokenization_methods(df_train: pd.DataFrame, df_test: pd.DataFrame, 
         go_labels_train = create_go_labels(df_train, go_col)
 
         # Standard BERTopic
-        topic_model_std, _ = create_bertopic_model(documents_train, go_labels_train, token_len_thr)
+        topic_model_std, _ = create_bertopic_model(documents_train, go_labels_train, token_len_thr, top_n_words)
         vocab_size = len(topic_model_std.get_params()['vectorizer_model'].vocabulary_)
         eval_std_single = evaluate_go_term_representations(df_test, topic_model_std, tokenizer_col, go_col, raw_sequence_col, raw_or_tokenized, scoring_type)
         eval_std_multi = evaluate_go_term_representations_multilabel(df_test, topic_model_std, tokenizer_col, go_col, raw_sequence_col, raw_or_tokenized, scoring_type)
@@ -719,7 +727,7 @@ def compare_tokenization_methods(df_train: pd.DataFrame, df_test: pd.DataFrame, 
                 if lineage.get('child_pair'): unit_relationships['hierarchical'][unit] = lineage['child_pair']
                 if lineage.get('child_mutation'): unit_relationships['mutational'][unit] = lineage['child_mutation']
         
-        topic_model_graph, _, _ = create_graph_aware_bertopic_model(documents_train, go_labels_train, unit_relationships, token_len_thr, lambda_smooth, alpha, beta, theta)
+        topic_model_graph, _, _ = create_graph_aware_bertopic_model(documents_train, go_labels_train, unit_relationships, token_len_thr, top_n_words, lambda_smooth, alpha, beta, theta)
         vocab_size = len(topic_model_graph.get_params()['vectorizer_model'].vocabulary_)
         eval_graph_single = evaluate_go_term_representations(df_test, topic_model_graph, tokenizer_col, go_col, raw_sequence_col, raw_or_tokenized, scoring_type)
         eval_graph_multi = evaluate_go_term_representations_multilabel(df_test, topic_model_graph, tokenizer_col, go_col, raw_sequence_col, raw_or_tokenized, scoring_type)
@@ -757,7 +765,7 @@ def compare_tokenization_methods(df_train: pd.DataFrame, df_test: pd.DataFrame, 
 
 def optimize_graph_aware_parameters(df_train: pd.DataFrame, df_test: pd.DataFrame, tokenizer_col: str, go_col: str, vocab_lineage_list: Dict,
                                     raw_sequence_col: str, raw_or_tokenized: str, scoring_type: str,
-                                    param_grid: dict, token_len_thr: int = 0) -> Tuple[pd.DataFrame, Dict]:
+                                    param_grid: dict, token_len_thr: int = 0, top_n_words: int = 10) -> Tuple[pd.DataFrame, Dict]:
     """
     Optimizes hyperparameters for the Graph-Aware BERTopic model.
 
@@ -772,6 +780,7 @@ def optimize_graph_aware_parameters(df_train: pd.DataFrame, df_test: pd.DataFram
         scoring_type: The scoring type.
         param_grid: A dictionary of parameters to search.
         token_len_thr: The minimum token length.
+        top_n_words: The number of words per topic.
 
     Returns:
         A tuple containing a DataFrame with optimization results and a dictionary of the best parameters.
@@ -792,7 +801,7 @@ def optimize_graph_aware_parameters(df_train: pd.DataFrame, df_test: pd.DataFram
     for lambda_smooth, alpha, beta, theta in tqdm(param_combinations, desc="Optimizing Parameters"):
         print()
         print(f"Testing lambda_smooth={lambda_smooth}, alpha={alpha}, beta={beta}, theta={theta}")
-        topic_model_graph, _, _ = create_graph_aware_bertopic_model(documents_train, go_labels_train, unit_relationships, token_len_thr, lambda_smooth, alpha, beta, theta)
+        topic_model_graph, _, _ = create_graph_aware_bertopic_model(documents_train, go_labels_train, unit_relationships, token_len_thr, top_n_words, lambda_smooth, alpha, beta, theta)
         eval_single = evaluate_go_term_representations(df_test, topic_model_graph, tokenizer_col, go_col, raw_sequence_col, raw_or_tokenized, scoring_type)
         eval_multi = evaluate_go_term_representations_multilabel(df_test, topic_model_graph, tokenizer_col, go_col, raw_sequence_col, raw_or_tokenized, scoring_type)
 
@@ -1791,7 +1800,7 @@ def compare_hierarchies(go_dag, goslim_terms, topic_model, documents):
     return results
 
 def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_cols: List[str], go_col: str, go_dag: any, goslim_terms: Set[str], vocab_lineage_list: Dict,
-                                              token_len_thr: int = 0, lambda_smooth: float = 0.1, alpha: float = 1.0, beta: float = 0.5, theta: float = 0.7) -> pd.DataFrame:
+                                              token_len_thr: int = 0, top_n_words: int = 10, lambda_smooth: float = 0.1, alpha: float = 1.0, beta: float = 0.5, theta: float = 0.7) -> pd.DataFrame:
     """
     Compares different tokenization methods by training BERTopic models and evaluating their hierarchical congruence with the GO DAG.
 
@@ -1803,6 +1812,7 @@ def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_
         goslim_terms: A set of GO Slim terms.
         vocab_lineage_list: A dictionary containing vocabulary lineage information.
         token_len_thr: The minimum token length.
+        top_n_words: The number of words per topic.
         lambda_smooth, alpha, beta, theta: Parameters for the graph-aware model.
 
     Returns:
@@ -1817,7 +1827,7 @@ def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_
         go_labels_train = create_go_labels(df_train, go_col)
 
         # Standard BERTopic
-        topic_model_std, _ = create_bertopic_model(documents_train, go_labels_train, token_len_thr)
+        topic_model_std, _ = create_bertopic_model(documents_train, go_labels_train, token_len_thr, top_n_words)
         comparator_std = GOHierarchyComparator(go_dag, goslim_terms, topic_model_std, documents_train)
         eval_std = comparator_std.compute_comprehensive_score()
         results.append({
@@ -1837,7 +1847,7 @@ def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_
                     unit_relationships['mutational'][unit] = lineage['child_mutation']
         
         topic_model_graph, _, _ = create_graph_aware_bertopic_model(
-            documents_train, go_labels_train, unit_relationships, token_len_thr, lambda_smooth, alpha, beta, theta
+            documents_train, go_labels_train, unit_relationships, token_len_thr, top_n_words, lambda_smooth, alpha, beta, theta
         )
         comparator_graph = GOHierarchyComparator(go_dag, goslim_terms, topic_model_graph, documents_train)
         eval_graph = comparator_graph.compute_comprehensive_score()
