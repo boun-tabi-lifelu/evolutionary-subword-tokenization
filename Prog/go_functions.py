@@ -1831,8 +1831,8 @@ def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_
         comparator_std = GOHierarchyComparator(go_dag, goslim_terms, topic_model_std, documents_train)
         eval_std = comparator_std.compute_comprehensive_score()
         results.append({
-            'tokenizer': tokenizer_col,
-            'model': 'Standard BERTopic',
+            'Tokenizer': tokenizer_col,
+            'Model': 'Standard BERTopic',
             'comprehensive_score': eval_std['comprehensive_score'],
             **eval_std['score_components']
         })
@@ -1852,8 +1852,8 @@ def compare_tokenization_methods_hierarchical(df_train: pd.DataFrame, tokenizer_
         comparator_graph = GOHierarchyComparator(go_dag, goslim_terms, topic_model_graph, documents_train)
         eval_graph = comparator_graph.compute_comprehensive_score()
         results.append({
-            'tokenizer': tokenizer_col,
-            'model': 'Graph-Aware BERTopic',
+            'Tokenizer': tokenizer_col,
+            'Model': 'Graph-Aware BERTopic',
             'comprehensive_score': eval_graph['comprehensive_score'],
             **eval_graph['score_components']
         })
