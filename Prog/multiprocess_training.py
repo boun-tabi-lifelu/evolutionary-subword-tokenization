@@ -67,12 +67,12 @@ def load_seqs(uniref_id):
 
 if __name__ == "__main__":
     uniref_id = 50
-    matrix = "BLOSUM45"
+    matrix = "PAM250"
 
-    # suffix = ""
-    # filtered_sequences = load_seqs(uniref_id)
-    suffix = "pre"
-    filtered_sequences = load_seqs_pretokenized(uniref_id)
+    suffix = ""
+    filtered_sequences = load_seqs(uniref_id)
+    # suffix = "pre"
+    # filtered_sequences = load_seqs_pretokenized(uniref_id)
 
     alphabet = ['A', 'R', 'N', 'D', 'C', 'E', 
                 'Q', 'G', 'H', 'I', 'L', 'K', 
@@ -83,17 +83,21 @@ if __name__ == "__main__":
     vocab_size = 51200
     save_folder = f"/cta/share/users/mutbpe/tokenizers/{matrix.lower()}/"
     argument_set_cutoff = [0.7, 0.8, 0.9]
+    argument_set_cutoff = [0.8, 0.9]
     argument_set_mutfreq = [0, 0.005, 0.05]
+    argument_set_mutfreq = [0.1, 0.2]
 
-    arguments = [
-        {
-        "corpus": corpus,
-        "alphabet": alphabet,
-        "tokenizer_type": "default",
-        "stop_type": "vocab_size",
-        "stop_parameter": vocab_size
-        }
-    ]
+    # arguments = [
+    #     {
+    #     "corpus": corpus,
+    #     "alphabet": alphabet,
+    #     "tokenizer_type": "default",
+    #     "stop_type": "vocab_size",
+    #     "stop_parameter": vocab_size
+    #     }
+    # ]
+    arguments = [] # NO BPE
+
     for cutoff in argument_set_cutoff:
         for mutfreq in argument_set_mutfreq:
             arguments.append(
