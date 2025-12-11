@@ -14,19 +14,26 @@ This repo contains all data and source code used during [this work](https://www.
 We provide codes and notebooks to reproduce our work.
 
 - **[Prog](Prog)** contains codes and notebooks.
-  - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of PUMA.
+  - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of PUMA training.
   - **[Prog/bpe_functions.py](Prog/bpe_functions.py):** Training functions of PUMA.
-  - **[Prog/multiprocess_training.py](Prog/multiprocess_training.py):** The main script to train tokenizers. Utilizes multiprocessing.
   - **[Prog/vocabulary_functions.py](Prog/vocabulary_functions.py):** Useful functions related to vocabulary manipulation.
+  - **[Prog/multiprocess_training.py](Prog/multiprocess_training.py):** The main script to train tokenizers. Utilizes multiprocessing.
+  - **[Prog/multiprocess_clinvar_analysis.py](Prog/multiprocess_training.py):** The main script to replicate ProteinGym experiments. (ClinVar)
+  - **[Prog/multiprocess_dms_analysis.py](Prog/multiprocess_training.py):** The main script to replicate ProteinGym experiments. (DMS)
+  - **[Prog/multiprocess_general_stats.py](Prog/multiprocess_training.py):** The main script to replicate "Properties of PUMA Vocabularies" section.
   - **[Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb)** covers where we obtained all the data and how we processed them to be utilized for our study.
-  - **[Prog/general_tokenizer_statistics.ipynb](Prog/general_tokenizer_statistics.ipynb):** Preliminary Analysis - General Tokenizer Statistics.
-  - **[Prog/effect_of_substitution_matrices.ipynb](Prog/effect_of_substitution_matrices.ipynb):** Preliminary Analysis - Effect of Substitution Matrices.
+  - **[Prog/prelim_genealogical.ipynb](Prog/prelim_genealogical.ipynb):** PUMA Properties - Main Notebook - Analysis of Family Structures
+  - **[Prog/prelim_vocab_stats.ipynb](Prog/prelim_vocab_stats.ipynb):** PUMA Properties - Main Notebook - Impact of Alignment Score Cut-off / Comparison with Frequency-Based Segmentation
+  - **[Prog/prelim_vocab_identity.ipynb](Prog/prelim_vocab_identity.ipynb):** PUMA Properties - Main Notebook - Impact of Substitution Matrices
+  - **[Prog/prelim_shared_unit.ipynb](Prog/prelim_shared_unit.ipynb):** PUMA Properties - Main Notebook - Comparison with Frequency-Based Segmentation
+  - **[Prog/experiment_clinvar.ipynb](Prog/experiment_clinvar.ipynb):** Experiments - Main Notebook - PUMA Families Favor Benign and Higher Scoring Mutations (ClinVar)
+  - **[Prog/experiment_dms.ipynb](Prog/experiment_dms.ipynb):** Experiments - Main Notebook - PUMA Families Favor Benign and Higher Scoring Mutations (DMS)
   - **[Prog/experiment_esm_mutation_vs_alternative.ipynb](Prog/experiment_esm_mutation_vs_alternative.ipynb):** Experiments - Main Notebook - Protein Language Models Contextually Prefer PUMA Siblings
     - **[Prog/experiment_esm_functions.py](Prog/experiment_esm_functions.py):** Experiments - Helper Functions - Protein Language Models Contextually Prefer PUMA Siblings
   - **[Prog/experiment_go_topic_model.ipynb](Prog/experiment_go_topic_model.ipynb):** Experiments - Main Notebook - PUMA Genealogy Improves Functional Representation via Topic Modeling
     - **[Prog/experiment_go_functions.py](Prog/experiment_go_functions.py):** Experiments - Helper Functions - PUMA Genealogy Improves Functional Representation via Topic Modeling
 - **[RSRC/vocabs](RSRC/vocabs)** contains internal and huggingface versions of BPE and PUMA vocabulary files for the vocabulary size of 6400.
-- **[RSRC/dataset](RSRC/dataset)** contains standard and pre-tokenized versions of the UniRef50 human taxanomy proteins. Codes that create fasta files can be found in [Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb) notebook's 'Generate Fasta Files' section.
+- **[RSRC/dataset](RSRC/dataset)** contains filtered UniRef50 human taxanomy protein dataset used in training. Codes that create fasta files can be found in [Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb) notebook's 'Generate Fasta Files' section.
   - **[RSRC/dataset/uniref_50.fasta](RSRC/dataset/uniref_50.fasta):** Standard versions of the proteins.
     ```
     format:
