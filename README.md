@@ -12,7 +12,7 @@
 
 This repo contains all data and source code used during [this work](https://www.arxiv.org/abs/2503.08838).
 We provide codes and notebooks to reproduce our work.
-
+- **[Trained PUMA Model Files](https://drive.google.com/file/d/1wh5yDokQMhgW2nrmu-MV3d5sTxwtrNS0/view?usp=sharing)** <-- You may download all PUMA models used in our experiments from here.
 - **[Prog](Prog)** contains codes and notebooks.
   ### Related to PUMA model training 
   - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of PUMA training.
