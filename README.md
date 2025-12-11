@@ -14,11 +14,13 @@ This repo contains all data and source code used during [this work](https://www.
 We provide codes and notebooks to reproduce our work.
 
 - **[Prog](Prog)** contains codes and notebooks.
+  ### Related to PUMA model training 
   - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of PUMA training.
   - **[Prog/bpe_functions.py](Prog/bpe_functions.py):** Training functions of PUMA.
   - **[Prog/vocabulary_functions.py](Prog/vocabulary_functions.py):** Useful functions related to vocabulary manipulation.
   - **[Prog/multiprocess_training.py](Prog/multiprocess_training.py):** The main script to train tokenizers. Utilizes multiprocessing.
-  - **[Prog/multiprocess_clinvar_analysis.py](Prog/multiprocess_training.py):** The main script to replicate ProteinGym experiments. (ClinVar)
+  ### Related to PUMA result replication
+  - **[Prog/result_files](Prog/result_files):** This folder contains precalculated results that have been used in figures.
   - **[Prog/multiprocess_dms_analysis.py](Prog/multiprocess_training.py):** The main script to replicate ProteinGym experiments. (DMS)
   - **[Prog/multiprocess_general_stats.py](Prog/multiprocess_training.py):** The main script to replicate "Properties of PUMA Vocabularies" section.
   - **[Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb)** covers where we obtained all the data and how we processed them to be utilized for our study.
