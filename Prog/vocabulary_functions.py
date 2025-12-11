@@ -25,6 +25,7 @@ from statistics import mean, stdev
 import os
 import re
 from scipy.spatial.distance import pdist
+from tqdm import tqdm
 
 # Converts the vocab dictionary data structure into
 # hugging face tokenizer data structure and returns it
@@ -389,3 +390,39 @@ def vocab_downsampler(base_path):
             vocab_json_to_HF_json(base_path + cur_name, base_path + "hf_" + cur_name)
 
             print(cur_name)
+
+
+def vocabulary_lineage_builder(inner_vocab_list):
+    # --- Vocabulary Lineage Construction ---
+    vocab_lineage_list = {}
+    for k, v in inner_vocab_list.items():
+        vocab_lineage_list[k] = {token: {
+            'frequency': -1, 'order': -1, 'parent_pair': [], 'parent_mutation': "",
+            'parent_mutation_similarity': -1, 'partner_pair_self': False,
+            'partner_pair_left': [], 'partner_pair_right': [], 'child_pair': [], 'child_mutation': []
+        } for token in v.keys()}
+
+    for method_name, vocab in tqdm(inner_vocab_list.items(), desc="Building Vocabulary Lineage"):
+        for token, inner_elements in vocab.items():
+            lineage = vocab_lineage_list[method_name][token]
+            lineage['frequency'] = inner_elements.get('frequency', -1)
+            lineage['order'] = inner_elements.get('order', -1)
+            lineage['parent_pair'] = inner_elements.get('pair', [])
+            lineage['parent_mutation'] = inner_elements.get('parent', "")
+            lineage['parent_mutation_similarity'] = inner_elements.get('similarity', -1)
+
+            if 'pair' in inner_elements:
+                p1, p2 = inner_elements['pair']
+                if p1 == p2:
+                    vocab_lineage_list[method_name][p1]['partner_pair_self'] = True
+                    vocab_lineage_list[method_name][p1]['child_pair'].append(token)
+                else:
+                    vocab_lineage_list[method_name][p1]['partner_pair_right'].append(p2)
+                    vocab_lineage_list[method_name][p2]['partner_pair_left'].append(p1)
+                    vocab_lineage_list[method_name][p1]['child_pair'].append(token)
+                    vocab_lineage_list[method_name][p2]['child_pair'].append(token)
+            if 'parent' in inner_elements:
+                parent = inner_elements['parent']
+                vocab_lineage_list[method_name][parent]['child_mutation'].append(token)
+
+    return vocab_lineage_list

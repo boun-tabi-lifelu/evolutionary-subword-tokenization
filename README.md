@@ -1,6 +1,12 @@
-<h1 align="center"> evoBPE: Evolutionary Protein Sequence Tokenization </h1>
+<h1 align="center"> PUMA: Discovery of Protein Units via Mutation-Aware Merging </h1>
 
-<center><img src="figures/evoBPE.svg" alt="evoBPE" width="750px"></center>
+</br>
+
+<center><img  src="figures/PUMA_flow.svg"  alt="PUMA Flow"  width="1000px"></center>
+
+</br></br></br>
+
+<center><img  src="figures/PUMA_iteration.svg"  alt="PUMA Iteration"  width="1000px"></center>
 
 </br>
 
@@ -8,18 +14,18 @@ This repo contains all data and source code used during [this work](https://www.
 We provide codes and notebooks to reproduce our work.
 
 - **[Prog](Prog)** contains codes and notebooks.
-  - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of evoBPE.
-  - **[Prog/bpe_functions.py](Prog/bpe_functions.py):** Training functions of evoBPE.
+  - **[Prog/helper_classes.py](Prog/helper_classes.py):** Data Structures of PUMA.
+  - **[Prog/bpe_functions.py](Prog/bpe_functions.py):** Training functions of PUMA.
   - **[Prog/multiprocess_training.py](Prog/multiprocess_training.py):** The main script to train tokenizers. Utilizes multiprocessing.
   - **[Prog/vocabulary_functions.py](Prog/vocabulary_functions.py):** Useful functions related to vocabulary manipulation.
   - **[Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb)** covers where we obtained all the data and how we processed them to be utilized for our study.
   - **[Prog/general_tokenizer_statistics.ipynb](Prog/general_tokenizer_statistics.ipynb):** Preliminary Analysis - General Tokenizer Statistics.
   - **[Prog/effect_of_substitution_matrices.ipynb](Prog/effect_of_substitution_matrices.ipynb):** Preliminary Analysis - Effect of Substitution Matrices.
-  - **[Prog/pretokenized_dataset_generation.ipynb](Prog/pretokenized_dataset_generation.ipynb)** shows pre-tokenization process.
-  - **[Prog/adherence_to_linguistic_laws.ipynb](Prog/adherence_to_linguistic_laws.ipynb):** Preliminary Analysis - Adherence to Linguistic Laws.
-  - **[Prog/domain_conservation_analysis.ipynb](Prog/domain_conservation_analysis.ipynb):** Experiments - Domain Conservation Analysis.
-  - **[Prog/esm_embedding_similarity_analysis_for_mutations.ipynb](Prog/esm_embedding_similarity_analysis_for_mutations.ipynb):** Experiments - ESM-2 Embedding Similarity Analysis for Mutations.
-- **[RSRC/vocabs](RSRC/vocabs)** contains internal and huggingface versions of BPE and evoBPE vocabulary files for the vocabulary size of 6400.
+  - **[Prog/experiment_esm_mutation_vs_alternative.ipynb](Prog/experiment_esm_mutation_vs_alternative.ipynb):** Experiments - Main Notebook - Protein Language Models Contextually Prefer PUMA Siblings
+    - **[Prog/experiment_esm_functions.py](Prog/experiment_esm_functions.py):** Experiments - Helper Functions - Protein Language Models Contextually Prefer PUMA Siblings
+  - **[Prog/experiment_go_topic_model.ipynb](Prog/experiment_go_topic_model.ipynb):** Experiments - Main Notebook - PUMA Genealogy Improves Functional Representation via Topic Modeling
+    - **[Prog/experiment_go_functions.py](Prog/experiment_go_functions.py):** Experiments - Helper Functions - PUMA Genealogy Improves Functional Representation via Topic Modeling
+- **[RSRC/vocabs](RSRC/vocabs)** contains internal and huggingface versions of BPE and PUMA vocabulary files for the vocabulary size of 6400.
 - **[RSRC/dataset](RSRC/dataset)** contains standard and pre-tokenized versions of the UniRef50 human taxanomy proteins. Codes that create fasta files can be found in [Prog/dataset_schema.ipynb](Prog/dataset_schema.ipynb) notebook's 'Generate Fasta Files' section.
   - **[RSRC/dataset/uniref_50.fasta](RSRC/dataset/uniref_50.fasta):** Standard versions of the proteins.
     ```
@@ -31,20 +37,10 @@ We provide codes and notebooks to reproduce our work.
     >A0A087WZT3
     MELSAEYLREKLQRDLEAEHVLPSPGGVGQVRGETAASETQLGS
     ```
-  - **[RSRC/dataset/uniref_50_pretokenized.fasta](RSRC/dataset/uniref_50_pretokenized.fasta):** Pre-tokenized versions of the proteins.
-    ```
-    format:
-    >uniprot_id occurrence=occurence order | source={out_of_domain or InterPro ID or TED ID}
-    protein sequence
-
-    example:
-    >Q5W8V9 occurrence=2 | source=IPR034325
-    PKLLQGVITVIDVFYQYATQHGEYDTLNKAELKELLENEFHQILKNPNDPDTVD
-    ```
 
 ## Abstract
 
-Recent advancements in computational biology have drawn compelling parallels between protein sequences and linguistic structures, highlighting the need for sophisticated tokenization methods that capture the intricate evolutionary dynamics of protein sequences. Current subword tokenization techniques, primarily developed for natural language processing, often fail to represent protein sequences' complex structural and functional properties adequately. This study introduces evoBPE, a novel tokenization approach that integrates evolutionary mutation patterns into sequence segmentation, addressing critical limitations in existing methods. By leveraging established substitution matrices, evoBPE transcends traditional frequency-based tokenization strategies. The method generates candidate token pairs through biologically informed mutations, evaluating them based on pairwise alignment scores and frequency thresholds. Extensive experiments on human protein sequences show that evoBPE performs better across multiple dimensions. Domain conservation analysis reveals that evoBPE consistently outperforms standard Byte-Pair Encoding, particularly as vocabulary size increases. Furthermore, embedding similarity analysis using ESM-2 suggests that mutation-based token replacements preserve biological sequence properties more effectively than arbitrary substitutions. The research contributes to protein sequence representation by introducing a mutation-aware tokenization method that better captures evolutionary nuances. By bridging computational linguistics and molecular biology, evoBPE opens new possibilities for machine learning applications in protein function prediction, structural modeling, and evolutionary analysis.
+Proteins are the essential drivers of biological processes. At the molecular level, they are chains of amino acids that can be viewed through a linguistic lens where the twenty standard residues serve as an alphabet combining to form a complex language, referred to as the language of life. To understand this language, we must first identify its fundamental units. Analogous to words, these units are hypothesized to represent an intermediate layer between single residues and larger domains. Crucially, just as protein diversity arises from evolution, these units should inherently reflect evolutionary relationships. We introduce PUMA (Protein Units via Mutation-Aware Merging) to discover these evolutionarily meaningful units. PUMA employs an iterative merging algorithm guided by substitution matrices to identify protein units and organize them into families linked by plausible mutations. This process creates a hierarchical genealogy where parent units and their mutational variants coexist, simultaneously producing a unit vocabulary and the genealogical structure connecting them. We validate that PUMA families are biologically meaningful; mutations within a PUMA family correlate with clinically benign variants and with high-scoring mutations in high-throughput assays. Furthermore, these units align with the contextual preferences of protein language models and map to known functional annotations. PUMA’s genealogical framework provides evolutionarily grounded units, offering a structured approach for understanding the language of life.
 
 If you use this repository, please cite the following related [paper]():
 ```bibtex
@@ -55,7 +51,6 @@ If you use this repository, please cite the following related [paper]():
   year={2025}
 }
 ```
-
 
 ## License
 
